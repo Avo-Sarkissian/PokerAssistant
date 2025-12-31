@@ -2,7 +2,7 @@ import SwiftUI
 
 struct PerformanceMonitorView: View {
     @ObservedObject private var monitor = PerformanceMonitor.shared
-    @State private var showDetails = false
+    @State private var showDetails = true  // Start expanded so users see calc details
     
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -53,17 +53,21 @@ struct PerformanceMonitorView: View {
                     }
                 }
                 
-                // Cache Hit Rate
-                HStack(spacing: 4) {
-                    Image(systemName: "bolt.fill")
-                        .font(.caption2)
-                    Text("\(Int(monitor.cacheHitRate))%")
-                        .font(.caption2.monospacedDigit())
-                        .foregroundColor(cacheColor)
+                // Last Calculation (always visible in compact view)
+                if !monitor.lastCalcInfo.isEmpty && monitor.lastCalcInfo != "No calculation yet" {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chart.bar.fill")
+                            .font(.caption2)
+                            .foregroundColor(.blue)
+                        Text(monitor.lastCalcInfo)
+                            .font(.caption2.monospacedDigit())
+                            .foregroundColor(.blue)
+                            .lineLimit(1)
+                    }
                 }
-                
+
                 Spacer()
-                
+
                 Button(action: { showDetails.toggle() }) {
                     Image(systemName: showDetails ? "chevron.up" : "chevron.down")
                         .font(.caption2)

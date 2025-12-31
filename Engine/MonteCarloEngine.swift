@@ -215,6 +215,12 @@ class MonteCarloEngine {
             // Store thread-local resources back
             Self.threadLocalBuffer.value = buffer
 
+            // Report actual valid iterations vs requested (important for range filtering)
+            if useRangeFilter && validIterations < iterations {
+                let efficiency = Int(Double(validIterations) / Double(iterations) * 100)
+                PerformanceMonitor.shared.reportCalcInfo("CPU: \(iterations/1000)K → \(validIterations/1000)K valid (\(efficiency)%)")
+            }
+
             return SimulationResult(wins: wins, ties: ties, total: validIterations)
         }
     
