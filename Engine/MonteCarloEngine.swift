@@ -123,9 +123,9 @@ class MonteCarloEngine {
             }
 
             let availableCount = buffer.count
-            let communityNeeded = 5 - hand.communityCards.count
+            let neededCards = (5 - hand.communityCards.count) + (opponents * 2)
 
-            guard availableCount >= communityNeeded + (opponents * 2) else {
+            guard availableCount >= neededCards else {
                 return SimulationResult(wins: 0, ties: 0, total: 0)
             }
 
@@ -143,85 +143,46 @@ class MonteCarloEngine {
             var oppCards = [Card]()
             oppCards.reserveCapacity(7)
 
-            // Range filtering: pre-compute valid opponent hands for direct sampling
-            // This eliminates the retry loop that caused 70+ second calculations
             let useRangeFilter = opponentRange != .random
-            var validOpponentHands: [(Int, Int)] = []  // Store indices for efficiency
 
-            if useRangeFilter {
-                // Pre-compute all 2-card index combos within range
-                for i in 0..<availableCount {
-                    for j in (i+1)..<availableCount {
-                        if OpponentRange.isHandInRange(buffer[i], buffer[j], range: opponentRange) {
-                            validOpponentHands.append((i, j))
-                        }
-                    }
-                }
-            }
-
-            let validHandCount = validOpponentHands.count
-
-            // Main simulation loop - no retry loop needed
+            // Simple, fast simulation loop
             for iteration in 0..<iterations {
-                // Fisher-Yates shuffle on indices for community cards
-                for j in (1..<availableCount).reversed() {
-                    let k = Int.random(in: 0...j, using: &rng)
-                    indices.swapAt(j, k)
+                // Fisher-Yates partial shuffle - only shuffle what we need
+                let cardsNeeded = neededCards
+                for i in 0..<cardsNeeded {
+                    let j = Int.random(in: i..<availableCount, using: &rng)
+                    indices.swapAt(i, j)
                 }
 
-                // Deal remaining community cards
+                // Deal community cards
                 communityCards.removeAll(keepingCapacity: true)
                 communityCards.append(contentsOf: hand.communityCards)
 
                 var cardIndex = 0
-                while communityCards.count < 5 && cardIndex < availableCount {
+                while communityCards.count < 5 {
                     communityCards.append(buffer[indices[cardIndex]])
                     cardIndex += 1
                 }
 
-                // Create a set of used card indices for this iteration
-                var usedCardIndices = Set<Int>()
-                for i in 0..<cardIndex {
-                    usedCardIndices.insert(indices[i])
-                }
-
-                // Evaluate opponent hands
+                // Evaluate opponent hands - simple sequential dealing
                 var bestOpponentValue = 0
                 var validOpponentCount = 0
 
                 for _ in 0..<opponents {
-                    let oppIdx1: Int
-                    let oppIdx2: Int
+                    let oppCard1 = buffer[indices[cardIndex]]
+                    let oppCard2 = buffer[indices[cardIndex + 1]]
+                    cardIndex += 2
 
-                    if useRangeFilter && validHandCount > 0 {
-                        // Sample directly from pre-computed valid hands
-                        var foundIdx1: Int?
-                        var foundIdx2: Int?
-                        for _ in 0..<5 {  // Try up to 5 times to find non-conflicting hand
-                            let handIdx = Int.random(in: 0..<validHandCount, using: &rng)
-                            let (i1, i2) = validOpponentHands[handIdx]
-                            if !usedCardIndices.contains(i1) && !usedCardIndices.contains(i2) {
-                                foundIdx1 = i1
-                                foundIdx2 = i2
-                                break
-                            }
+                    // Range filter: skip hands outside opponent's likely range
+                    if useRangeFilter {
+                        if !OpponentRange.isHandInRange(oppCard1, oppCard2, range: opponentRange) {
+                            continue  // Skip this opponent, they wouldn't play this hand
                         }
-                        guard let idx1 = foundIdx1, let idx2 = foundIdx2 else { continue }
-                        oppIdx1 = idx1
-                        oppIdx2 = idx2
-                        usedCardIndices.insert(oppIdx1)
-                        usedCardIndices.insert(oppIdx2)
-                    } else {
-                        // Random sampling (no range filter)
-                        guard cardIndex + 1 < availableCount else { break }
-                        oppIdx1 = indices[cardIndex]
-                        oppIdx2 = indices[cardIndex + 1]
-                        cardIndex += 2
                     }
 
                     oppCards.removeAll(keepingCapacity: true)
-                    oppCards.append(buffer[oppIdx1])
-                    oppCards.append(buffer[oppIdx2])
+                    oppCards.append(oppCard1)
+                    oppCards.append(oppCard2)
                     oppCards.append(contentsOf: communityCards)
 
                     let oppValue = Int(intelligence.evaluate7(oppCards))
@@ -229,9 +190,7 @@ class MonteCarloEngine {
                     validOpponentCount += 1
                 }
 
-                // Always count the iteration (no retry loop)
-                // If no valid opponents, we still evaluate (edge case with very tight range)
-
+                // If no opponents had valid hands, this is a win (they all folded pre)
                 // Evaluate my hand
                 myHandCards.removeAll(keepingCapacity: true)
                 myHandCards.append(contentsOf: hand.holeCards)
@@ -245,8 +204,8 @@ class MonteCarloEngine {
                     ties += 1
                 }
 
-                // Report progress periodically (every 10000 iters to reduce overhead)
-                if iteration % 10000 == 0 {
+                // Report progress periodically
+                if iteration % 20000 == 0 {
                     PerformanceMonitor.shared.reportCalculation()
                 }
             }

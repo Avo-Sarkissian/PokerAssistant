@@ -531,20 +531,26 @@ struct PotInfoViewEnhanced: View {
     private func decrementPot() { updatePot(max(settings.smallBlind + settings.bigBlind, localPotSize - settings.smallBlind)) }
     private func incrementCall() { updateCall(localToCall + settings.smallBlind) }
     private func decrementCall() { updateCall(max(0, localToCall - settings.smallBlind)) }
-    
+
     private func setBetMultiplier(_ multiplier: Double) {
         // This sets the "cost to call" as if opponent bet X% of pot
         updateCall(localPotSize * multiplier)
     }
-    
+
     private func updatePot(_ value: Double) {
         localPotSize = value
         gameViewModel.gameState.potSize = value
+        // If toCall exceeds new pot size, cap it
+        if localToCall > value {
+            updateCall(value)
+        }
     }
-    
+
     private func updateCall(_ value: Double) {
-        localToCall = value
-        gameViewModel.gameState.toCall = value
+        // Cost to call cannot exceed pot size (opponent can't bet more than the pot in most games)
+        let cappedValue = min(value, localPotSize)
+        localToCall = cappedValue
+        gameViewModel.gameState.toCall = cappedValue
     }
 }
 
