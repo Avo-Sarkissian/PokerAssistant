@@ -118,7 +118,7 @@ struct PerformanceMonitorView: View {
                             Text("Last calc:")
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
-                            Text(MetalCompute.lastDebugInfo)
+                            Text(monitor.lastCalcInfo)
                                 .font(.caption2.monospacedDigit())
                                 .foregroundColor(.secondary)
                         }

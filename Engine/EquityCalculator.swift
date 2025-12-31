@@ -47,7 +47,7 @@ class EquityCalculator {
                     iterations: gpuMaxIterations
                 ), gpuResult > 0.001 {
                     PerformanceMonitor.shared.reportGPUActive(false)
-                    MetalCompute.lastDebugInfo = "GPU: \(gpuMaxIterations/1000)K -> \(String(format: "%.1f", gpuResult * 100))%"
+                    PerformanceMonitor.shared.reportCalcInfo("GPU: \(gpuMaxIterations/1000)K → \(String(format: "%.1f", gpuResult * 100))%")
                     return gpuResult
                 }
 
@@ -59,7 +59,7 @@ class EquityCalculator {
         // Cap CPU iterations to 50K when range filtering for speed (~3 seconds)
         let cpuIterations = useRangeFiltering ? min(iterations, 50_000) : iterations
         let rangeLabel = useRangeFiltering ? " [vs \(opponentRange)]" : ""
-        MetalCompute.lastDebugInfo = "CPU: \(cpuIterations / 1000)K\(rangeLabel)"
+        PerformanceMonitor.shared.reportCalcInfo("CPU: \(cpuIterations / 1000)K\(rangeLabel)")
         return await monteCarloEngine.simulate(
             hand: hand,
             opponents: opponents,

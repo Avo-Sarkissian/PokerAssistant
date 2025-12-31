@@ -12,7 +12,8 @@ class PerformanceMonitor: ObservableObject {
     @Published var calculationsPerSecond: Int = 0
     @Published var cacheEntries: Int = 0
     @Published var computeMode: String = "CPU"
-    
+    @Published var lastCalcInfo: String = "No calculation yet"
+
     // FIXED: Default to TRUE so the spinner never appears unless we explicitly ask for it
     @Published var isPreloadComplete: Bool = true
     @Published var preloadProgress: Int = 100
@@ -131,6 +132,12 @@ class PerformanceMonitor: ObservableObject {
         DispatchQueue.main.async {
             self.preloadProgress = progress
             self.isPreloadComplete = isComplete
+        }
+    }
+
+    func reportCalcInfo(_ info: String) {
+        DispatchQueue.main.async {
+            self.lastCalcInfo = info
         }
     }
 }
