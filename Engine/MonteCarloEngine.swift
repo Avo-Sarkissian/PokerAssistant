@@ -190,25 +190,27 @@ class MonteCarloEngine {
                 var validOpponentCount = 0
 
                 for _ in 0..<opponents {
-                    var oppIdx1: Int
-                    var oppIdx2: Int
+                    let oppIdx1: Int
+                    let oppIdx2: Int
 
                     if useRangeFilter && validHandCount > 0 {
                         // Sample directly from pre-computed valid hands
-                        var found = false
+                        var foundIdx1: Int?
+                        var foundIdx2: Int?
                         for _ in 0..<5 {  // Try up to 5 times to find non-conflicting hand
                             let handIdx = Int.random(in: 0..<validHandCount, using: &rng)
                             let (i1, i2) = validOpponentHands[handIdx]
                             if !usedCardIndices.contains(i1) && !usedCardIndices.contains(i2) {
-                                oppIdx1 = i1
-                                oppIdx2 = i2
-                                usedCardIndices.insert(i1)
-                                usedCardIndices.insert(i2)
-                                found = true
+                                foundIdx1 = i1
+                                foundIdx2 = i2
                                 break
                             }
                         }
-                        if !found { continue }  // Skip this opponent if no valid hand found
+                        guard let idx1 = foundIdx1, let idx2 = foundIdx2 else { continue }
+                        oppIdx1 = idx1
+                        oppIdx2 = idx2
+                        usedCardIndices.insert(oppIdx1)
+                        usedCardIndices.insert(oppIdx2)
                     } else {
                         // Random sampling (no range filter)
                         guard cardIndex + 1 < availableCount else { break }
