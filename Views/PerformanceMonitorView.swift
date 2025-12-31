@@ -44,7 +44,7 @@ struct PerformanceMonitorView: View {
                 // GPU Active
                 if monitor.isGPUActive {
                     HStack(spacing: 4) {
-                        Image(systemName: "gpu")
+                        Image(systemName: "square.stack.3d.up.fill")
                             .font(.caption2)
                             .foregroundColor(.green)
                         Text("GPU")
@@ -113,7 +113,16 @@ struct PerformanceMonitorView: View {
                                 .font(.caption2)
                                 .foregroundColor(monitor.isGPUActive ? .green : .blue)
                         }
-                        
+
+                        GridRow {
+                            Text("Last calc:")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                            Text(MetalCompute.lastDebugInfo)
+                                .font(.caption2.monospacedDigit())
+                                .foregroundColor(.secondary)
+                        }
+
                         if monitor.isPreloadComplete {
                             GridRow {
                                 Text("Data loaded:")

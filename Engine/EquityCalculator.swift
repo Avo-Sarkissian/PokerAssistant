@@ -56,8 +56,8 @@ class EquityCalculator {
         }
 
         // CPU path: supports range filtering for better accuracy when opponent has acted
-        // Cap CPU iterations to 100K when range filtering for speed (~5 seconds)
-        let cpuIterations = useRangeFiltering ? min(iterations, 100_000) : iterations
+        // Cap CPU iterations to 50K when range filtering for speed (~3 seconds)
+        let cpuIterations = useRangeFiltering ? min(iterations, 50_000) : iterations
         let rangeLabel = useRangeFiltering ? " [vs \(opponentRange)]" : ""
         MetalCompute.lastDebugInfo = "CPU: \(cpuIterations / 1000)K\(rangeLabel)"
         return await monteCarloEngine.simulate(

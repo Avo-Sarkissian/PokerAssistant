@@ -144,12 +144,12 @@ class MonteCarloEngine {
             oppCards.reserveCapacity(7)
 
             let useRangeFilter = opponentRange != .random
+            var validIterations = 0
 
             // Simple, fast simulation loop
-            for iteration in 0..<iterations {
+            for _ in 0..<iterations {
                 // Fisher-Yates partial shuffle - only shuffle what we need
-                let cardsNeeded = neededCards
-                for i in 0..<cardsNeeded {
+                for i in 0..<neededCards {
                     let j = Int.random(in: i..<availableCount, using: &rng)
                     indices.swapAt(i, j)
                 }
@@ -190,7 +190,14 @@ class MonteCarloEngine {
                     validOpponentCount += 1
                 }
 
-                // If no opponents had valid hands, this is a win (they all folded pre)
+                // Skip iterations where no opponents had hands in range
+                // We want equity against hands they WOULD play, not "they all folded"
+                if useRangeFilter && validOpponentCount == 0 {
+                    continue
+                }
+
+                validIterations += 1
+
                 // Evaluate my hand
                 myHandCards.removeAll(keepingCapacity: true)
                 myHandCards.append(contentsOf: hand.holeCards)
@@ -198,22 +205,17 @@ class MonteCarloEngine {
 
                 let myValue = Int(intelligence.evaluate7(myHandCards))
 
-                if validOpponentCount == 0 || myValue > bestOpponentValue {
+                if myValue > bestOpponentValue {
                     wins += 1
                 } else if myValue == bestOpponentValue {
                     ties += 1
-                }
-
-                // Report progress periodically
-                if iteration % 20000 == 0 {
-                    PerformanceMonitor.shared.reportCalculation()
                 }
             }
 
             // Store thread-local resources back
             Self.threadLocalBuffer.value = buffer
 
-            return SimulationResult(wins: wins, ties: ties, total: iterations)
+            return SimulationResult(wins: wins, ties: ties, total: validIterations)
         }
     
     private func simulateSingleThread(
