@@ -23,11 +23,18 @@ class PerformanceMonitor: ObservableObject {
     private var calculationCount: Int = 0
     private var lastCalculationReset = Date()
     private var recentCalculations: [Date] = []
-    
+    private var isMonitoringStarted = false
+
     private init() {
+        // Don't start monitoring immediately - defer until first calculation
+    }
+
+    private func ensureMonitoringStarted() {
+        guard !isMonitoringStarted else { return }
+        isMonitoringStarted = true
         startMonitoring()
     }
-    
+
     private func startMonitoring() {
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
             Task { @MainActor in
@@ -100,6 +107,7 @@ class PerformanceMonitor: ObservableObject {
     
     func reportCalculation() {
         DispatchQueue.main.async {
+            self.ensureMonitoringStarted()
             self.recentCalculations.append(Date())
             if self.recentCalculations.count > 1000 {
                 self.recentCalculations.removeFirst(500)

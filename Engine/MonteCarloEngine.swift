@@ -123,9 +123,9 @@ class MonteCarloEngine {
             }
 
             let availableCount = buffer.count
-            let neededCards = (5 - hand.communityCards.count) + (opponents * 2)
+            let communityNeeded = 5 - hand.communityCards.count
 
-            guard availableCount >= neededCards else {
+            guard availableCount >= communityNeeded + (opponents * 2) else {
                 return SimulationResult(wins: 0, ties: 0, total: 0)
             }
 
@@ -143,19 +143,27 @@ class MonteCarloEngine {
             var oppCards = [Card]()
             oppCards.reserveCapacity(7)
 
-            // Range filtering applies on ALL streets when opponent has bet
-            // This narrows opponent's range based on their betting action
+            // Range filtering: pre-compute valid opponent hands for direct sampling
+            // This eliminates the retry loop that caused 70+ second calculations
             let useRangeFilter = opponentRange != .random
+            var validOpponentHands: [(Int, Int)] = []  // Store indices for efficiency
 
-            // Main simulation loop - optimized for speed
-            var validIterations = 0
-            var iterationAttempts = 0
-            let maxAttempts = iterations * 3  // Prevent infinite loop with tight ranges
+            if useRangeFilter {
+                // Pre-compute all 2-card index combos within range
+                for i in 0..<availableCount {
+                    for j in (i+1)..<availableCount {
+                        if OpponentRange.isHandInRange(buffer[i], buffer[j], range: opponentRange) {
+                            validOpponentHands.append((i, j))
+                        }
+                    }
+                }
+            }
 
-            while validIterations < iterations && iterationAttempts < maxAttempts {
-                iterationAttempts += 1
+            let validHandCount = validOpponentHands.count
 
-                // Fisher-Yates shuffle on indices (faster than shuffling card objects)
+            // Main simulation loop - no retry loop needed
+            for iteration in 0..<iterations {
+                // Fisher-Yates shuffle on indices for community cards
                 for j in (1..<availableCount).reversed() {
                     let k = Int.random(in: 0...j, using: &rng)
                     indices.swapAt(j, k)
@@ -171,37 +179,56 @@ class MonteCarloEngine {
                     cardIndex += 1
                 }
 
-                // Evaluate opponent hands with range filtering
+                // Create a set of used card indices for this iteration
+                var usedCardIndices = Set<Int>()
+                for i in 0..<cardIndex {
+                    usedCardIndices.insert(indices[i])
+                }
+
+                // Evaluate opponent hands
                 var bestOpponentValue = 0
-                var validOpponents = 0
+                var validOpponentCount = 0
 
                 for _ in 0..<opponents {
-                    guard cardIndex + 1 < availableCount else { break }
+                    var oppIdx1: Int
+                    var oppIdx2: Int
 
-                    let oppCard1 = buffer[indices[cardIndex]]
-                    let oppCard2 = buffer[indices[cardIndex + 1]]
-                    cardIndex += 2
-
-                    // Range filter: skip hands outside opponent's likely range
-                    if useRangeFilter {
-                        if !OpponentRange.isHandInRange(oppCard1, oppCard2, range: opponentRange) {
-                            continue  // Skip this hand, opponent wouldn't play it
+                    if useRangeFilter && validHandCount > 0 {
+                        // Sample directly from pre-computed valid hands
+                        var found = false
+                        for _ in 0..<5 {  // Try up to 5 times to find non-conflicting hand
+                            let handIdx = Int.random(in: 0..<validHandCount, using: &rng)
+                            let (i1, i2) = validOpponentHands[handIdx]
+                            if !usedCardIndices.contains(i1) && !usedCardIndices.contains(i2) {
+                                oppIdx1 = i1
+                                oppIdx2 = i2
+                                usedCardIndices.insert(i1)
+                                usedCardIndices.insert(i2)
+                                found = true
+                                break
+                            }
                         }
+                        if !found { continue }  // Skip this opponent if no valid hand found
+                    } else {
+                        // Random sampling (no range filter)
+                        guard cardIndex + 1 < availableCount else { break }
+                        oppIdx1 = indices[cardIndex]
+                        oppIdx2 = indices[cardIndex + 1]
+                        cardIndex += 2
                     }
 
                     oppCards.removeAll(keepingCapacity: true)
-                    oppCards.append(oppCard1)
-                    oppCards.append(oppCard2)
+                    oppCards.append(buffer[oppIdx1])
+                    oppCards.append(buffer[oppIdx2])
                     oppCards.append(contentsOf: communityCards)
 
                     let oppValue = Int(intelligence.evaluate7(oppCards))
                     bestOpponentValue = max(bestOpponentValue, oppValue)
-                    validOpponents += 1
+                    validOpponentCount += 1
                 }
 
-                // Only count simulation if at least one opponent had a valid hand
-                // If all opponents filtered out, reshuffle and retry (don't count as auto-win)
-                guard validOpponents > 0 || !useRangeFilter else { continue }
+                // Always count the iteration (no retry loop)
+                // If no valid opponents, we still evaluate (edge case with very tight range)
 
                 // Evaluate my hand
                 myHandCards.removeAll(keepingCapacity: true)
@@ -210,16 +237,14 @@ class MonteCarloEngine {
 
                 let myValue = Int(intelligence.evaluate7(myHandCards))
 
-                if myValue > bestOpponentValue {
+                if validOpponentCount == 0 || myValue > bestOpponentValue {
                     wins += 1
                 } else if myValue == bestOpponentValue {
                     ties += 1
                 }
 
-                validIterations += 1
-
-                // Report progress periodically (every 5000 iters to reduce overhead)
-                if validIterations % 5000 == 0 {
+                // Report progress periodically (every 10000 iters to reduce overhead)
+                if iteration % 10000 == 0 {
                     PerformanceMonitor.shared.reportCalculation()
                 }
             }
@@ -227,7 +252,7 @@ class MonteCarloEngine {
             // Store thread-local resources back
             Self.threadLocalBuffer.value = buffer
 
-            return SimulationResult(wins: wins, ties: ties, total: validIterations)
+            return SimulationResult(wins: wins, ties: ties, total: iterations)
         }
     
     private func simulateSingleThread(

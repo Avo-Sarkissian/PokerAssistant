@@ -3,17 +3,23 @@ import SwiftUI
 struct MainGameView: View {
     @EnvironmentObject var gameViewModel: GameViewModel
     @EnvironmentObject var settings: Settings
-    @State private var showingCardSelector = false
     @State private var selectedCardIndex: CardSelectionType?
     @State private var showingResetAlert = false
-    
+
     // Position Toggle State
     @State private var selectedPosition: String = "Btn"
     let positions = ["SB", "BB", "Btn"]
-    
-    enum CardSelectionType {
+
+    enum CardSelectionType: Identifiable {
         case hole(Int)
         case community(Int)
+
+        var id: String {
+            switch self {
+            case .hole(let i): return "hole-\(i)"
+            case .community(let i): return "community-\(i)"
+            }
+        }
     }
     
     var body: some View {
@@ -62,13 +68,11 @@ struct MainGameView: View {
                     // --- HAND VIEW ---
                     YourHandView(onCardTap: { index in
                         selectedCardIndex = .hole(index)
-                        showingCardSelector = true
                     })
-                    
+
                     // --- BOARD VIEW ---
                     CommunityCardsView(onCardTap: { index in
                         selectedCardIndex = .community(index)
-                        showingCardSelector = true
                     })
                     
                     // --- POT CONTROLS ---
@@ -108,14 +112,12 @@ struct MainGameView: View {
             // Store position in game state
             gameViewModel.gameState.position = selectedPosition
         }
-        .sheet(isPresented: $showingCardSelector, onDismiss: {
-            selectedCardIndex = nil
-        }) {
-            CardSelectorSheet(
-                selectedCardIndex: selectedCardIndex,
-                gameViewModel: gameViewModel,
-                onDismiss: { showingCardSelector = false }
+        .sheet(item: $selectedCardIndex) { selection in
+            CardSelectorView(
+                selectedCard: binding(for: selection),
+                onDismiss: { selectedCardIndex = nil }
             )
+            .environmentObject(gameViewModel)
         }
         .alert("Reset Hand?", isPresented: $showingResetAlert) {
             Button("Cancel", role: .cancel) { }
@@ -599,48 +601,3 @@ struct CalculateButton: View {
     }
 }
 
-/// Wrapper to ensure CardSelectorView always has valid content when sheet appears
-struct CardSelectorSheet: View {
-    let selectedCardIndex: MainGameView.CardSelectionType?
-    @ObservedObject var gameViewModel: GameViewModel
-    let onDismiss: () -> Void
-
-    var body: some View {
-        Group {
-            if let index = selectedCardIndex {
-                CardSelectorView(
-                    selectedCard: cardBinding(for: index),
-                    onDismiss: onDismiss
-                )
-                .environmentObject(gameViewModel)
-            } else {
-                // Fallback - should not happen but prevents blank screen
-                VStack {
-                    Text("Loading...")
-                        .foregroundColor(.secondary)
-                }
-                .onAppear {
-                    // Auto-dismiss if no selection
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        onDismiss()
-                    }
-                }
-            }
-        }
-    }
-
-    private func cardBinding(for selection: MainGameView.CardSelectionType) -> Binding<Card?> {
-        switch selection {
-        case .hole(let index):
-            return Binding(
-                get: { gameViewModel.gameState.holeCards[index] },
-                set: { gameViewModel.gameState.holeCards[index] = $0 }
-            )
-        case .community(let index):
-            return Binding(
-                get: { gameViewModel.gameState.communityCards[index] },
-                set: { gameViewModel.gameState.communityCards[index] = $0 }
-            )
-        }
-    }
-}

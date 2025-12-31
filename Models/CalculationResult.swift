@@ -8,6 +8,7 @@ struct CalculationResult {
     let reasoning: String
     let alternativeActions: [AlternativeAction]
     let calculationTime: TimeInterval
+    let toCall: Double  // Stored at calculation time to prevent UI updates
     
     enum RecommendedAction: Equatable {
         case fold

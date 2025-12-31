@@ -242,7 +242,8 @@ class CalculationViewModel: ObservableObject {
             confidence: .high,
             reasoning: reasoning,
             alternativeActions: alternatives,
-            calculationTime: Date().timeIntervalSince(startTime ?? Date())
+            calculationTime: Date().timeIntervalSince(startTime ?? Date()),
+            toCall: gameState.toCall
         )
     }
     
@@ -283,6 +284,12 @@ class CalculationViewModel: ObservableObject {
         case .fold:
             return "Equity (\(Int(equity*100))%) doesn't justify the price."
         case .call:
+            if gameState.toCall == 0 {
+                if equity < 0.35 {
+                    return "Check and see a free card. Low equity doesn't justify building a pot."
+                }
+                return "Check to control pot size or induce bluffs."
+            }
             return "Profitable call based on pot odds and implied value."
         case .raise:
             return "High equity + fold equity makes raising optimal."

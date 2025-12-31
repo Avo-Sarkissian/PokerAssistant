@@ -1,9 +1,8 @@
 import Foundation
 
 class EquityCalculator {
-    private let monteCarloEngine = MonteCarloEngine()
-
-    // Lazy initialization - Metal shader compiles on first use, not app launch
+    // Lazy initialization - engines only initialize on first calculation, not app launch
+    private lazy var monteCarloEngine = MonteCarloEngine()
     private lazy var metalCompute: MetalCompute? = MetalCompute()
 
     func calculateQuick(

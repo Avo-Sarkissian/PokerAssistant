@@ -9,11 +9,11 @@ struct ResultView: View {
         VStack(spacing: 15) {
             // Main Recommendation
             VStack(spacing: 5) {
-                Image(systemName: iconForAction(result.action))
+                Image(systemName: iconForAction(result.action, toCall: result.toCall))
                     .font(.system(size: 40))
-                    .foregroundColor(colorForAction(result.action))
+                    .foregroundColor(colorForAction(result.action, toCall: result.toCall))
                 
-                Text(result.action.displayStringWithContext(toCall: gameViewModel.gameState.toCall))
+                Text(result.action.displayStringWithContext(toCall: result.toCall))
                     .font(.title2)
                     .bold()
                     .multilineTextAlignment(.center)
@@ -89,7 +89,7 @@ struct ResultView: View {
                 
                 ForEach(result.alternativeActions, id: \.action.displayString) { alternative in
                     HStack {
-                        Text("• \(alternative.action.shortDisplayString(toCall: gameViewModel.gameState.toCall)):")
+                        Text("• \(alternative.action.shortDisplayString(toCall: result.toCall)):")
                             .font(.caption)
                         Spacer()
                         Text(formatEV(alternative.expectedValue))
@@ -118,23 +118,23 @@ struct ResultView: View {
         }
     }
     
-    private func iconForAction(_ action: CalculationResult.RecommendedAction) -> String {
+    private func iconForAction(_ action: CalculationResult.RecommendedAction, toCall: Double) -> String {
         switch action {
         case .fold: return "xmark.circle.fill"
         case .call:
-            if gameViewModel.gameState.toCall == 0 {
+            if toCall == 0 {
                 return "checkmark.square.fill"
             }
             return "checkmark.circle.fill"
         case .raise: return "arrow.up.circle.fill"
         }
     }
-    
-    private func colorForAction(_ action: CalculationResult.RecommendedAction) -> Color {
+
+    private func colorForAction(_ action: CalculationResult.RecommendedAction, toCall: Double) -> Color {
         switch action {
         case .fold: return .red
         case .call:
-            if gameViewModel.gameState.toCall == 0 {
+            if toCall == 0 {
                 return .green
             }
             return .yellow
