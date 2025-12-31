@@ -149,13 +149,15 @@ class CalculationViewModel: ObservableObject {
 
     /// Determine opponent's likely range based on their betting action
     private func determineOpponentRange(gameState: GameState) -> OpponentRange.RangeType {
+        // No bet to face = no information about opponent's range = use random (enables fast GPU path)
+        guard gameState.toCall > 0 else { return .random }
+
         let potRelativeBet = gameState.toCall / max(gameState.potSize, 1.0)
-        let isRaise = gameState.toCall > 0
 
         return OpponentRange.rangeFromAction(
             potRelativeBet: potRelativeBet,
             street: gameState.currentStreet,
-            isRaise: isRaise
+            isRaise: true
         )
     }
     
