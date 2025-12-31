@@ -27,61 +27,67 @@ class MonteCarloEngine {
         PerformanceMonitor.shared.reportActiveCores(coreCount)
     }
     
+    /// Main simulate function with opponent range weighting for improved accuracy
+    /// - Parameters:
+    ///   - opponentRange: The estimated range of hands opponents might hold
     func simulate(
         hand: Hand,
         opponents: Int,
         deadCards: Set<Card>,
-        iterations: Int
+        iterations: Int,
+        opponentRange: OpponentRange.RangeType = .standard
     ) async -> Double {
         guard hand.holeCards.count == 2 else { return 0.0 }
-        
+
         // Report GPU not active (CPU mode)
         PerformanceMonitor.shared.reportGPUActive(false)
-        
+
         // For small iterations, don't parallelize (overhead > gain)
         if iterations < 10000 {
             return await simulateSingleThread(
                 hand: hand,
                 opponents: opponents,
                 deadCards: deadCards,
-                iterations: iterations
+                iterations: iterations,
+                opponentRange: opponentRange
             )
         }
-        
+
         // Report active cores for this calculation
         PerformanceMonitor.shared.reportActiveCores(coreCount)
-        
+
         // Distribute work across all cores
         let iterationsPerCore = iterations / coreCount
         let remainder = iterations % coreCount
-        
+
         return await withTaskGroup(of: SimulationResult.self) { group in
             for coreIndex in 0..<coreCount {
                 let coreIterations = iterationsPerCore + (coreIndex < remainder ? 1 : 0)
-                
+
                 group.addTask(priority: .userInitiated) {
                     self.simulateOnCore(
                         hand: hand,
                         opponents: opponents,
                         deadCards: deadCards,
                         iterations: coreIterations,
-                        coreIndex: coreIndex
+                        coreIndex: coreIndex,
+                        opponentRange: opponentRange
                     )
                 }
             }
-            
+
             var totalWins = 0
             var totalTies = 0
             var totalRuns = 0
-            
+
             for await result in group {
                 totalWins += result.wins
                 totalTies += result.ties
                 totalRuns += result.total
             }
-            
+
             guard totalRuns > 0 else { return 0.0 }
-            
+
             let equity = Double(totalWins) / Double(totalRuns) +
                         (Double(totalTies) / Double(totalRuns) * 0.5)
             return min(1.0, max(0.0, equity))
@@ -99,123 +105,152 @@ class MonteCarloEngine {
             opponents: Int,
             deadCards: Set<Card>,
             iterations: Int,
-            coreIndex: Int
+            coreIndex: Int,
+            opponentRange: OpponentRange.RangeType
         ) -> SimulationResult {
             // Get thread-local resources
             var rng = Self.threadLocalRandom.value!
             let deck = Self.threadLocalDeck.value!
             var buffer = Self.threadLocalBuffer.value!
-            
+
             // Pre-calculate used cards
             let usedCards = Set(hand.allCards + Array(deadCards))
-            
+
             // Create available cards buffer once
             buffer.removeAll(keepingCapacity: true)
             for card in deck where !usedCards.contains(card) {
                 buffer.append(card)
             }
-            
+
             let availableCount = buffer.count
             let neededCards = (5 - hand.communityCards.count) + (opponents * 2)
-            
+
             guard availableCount >= neededCards else {
                 return SimulationResult(wins: 0, ties: 0, total: 0)
             }
-            
+
             var wins = 0
             var ties = 0
-            
+
             // Pre-allocate arrays for reuse
             var indices = Array(0..<availableCount)
             var communityCards = Array(hand.communityCards)
             communityCards.reserveCapacity(5)
-            
+
             var myHandCards = Array(hand.holeCards)
             myHandCards.reserveCapacity(7)
-            
+
             var oppCards = [Card]()
             oppCards.reserveCapacity(7)
-            
+
+            // Range filtering applies on ALL streets when opponent has bet
+            // This narrows opponent's range based on their betting action
+            let useRangeFilter = opponentRange != .random
+
             // Main simulation loop - optimized for speed
-            for i in 0..<iterations {
+            var validIterations = 0
+            var iterationAttempts = 0
+            let maxAttempts = iterations * 3  // Prevent infinite loop with tight ranges
+
+            while validIterations < iterations && iterationAttempts < maxAttempts {
+                iterationAttempts += 1
+
                 // Fisher-Yates shuffle on indices (faster than shuffling card objects)
                 for j in (1..<availableCount).reversed() {
                     let k = Int.random(in: 0...j, using: &rng)
                     indices.swapAt(j, k)
                 }
-                
+
                 // Deal remaining community cards
                 communityCards.removeAll(keepingCapacity: true)
                 communityCards.append(contentsOf: hand.communityCards)
-                
+
                 var cardIndex = 0
                 while communityCards.count < 5 && cardIndex < availableCount {
                     communityCards.append(buffer[indices[cardIndex]])
                     cardIndex += 1
                 }
-                
+
+                // Evaluate opponent hands with range filtering
+                var bestOpponentValue = 0
+                var validOpponents = 0
+
+                for _ in 0..<opponents {
+                    guard cardIndex + 1 < availableCount else { break }
+
+                    let oppCard1 = buffer[indices[cardIndex]]
+                    let oppCard2 = buffer[indices[cardIndex + 1]]
+                    cardIndex += 2
+
+                    // Range filter: skip hands outside opponent's likely range
+                    if useRangeFilter {
+                        if !OpponentRange.isHandInRange(oppCard1, oppCard2, range: opponentRange) {
+                            continue  // Skip this hand, opponent wouldn't play it
+                        }
+                    }
+
+                    oppCards.removeAll(keepingCapacity: true)
+                    oppCards.append(oppCard1)
+                    oppCards.append(oppCard2)
+                    oppCards.append(contentsOf: communityCards)
+
+                    let oppValue = Int(intelligence.evaluate7(oppCards))
+                    bestOpponentValue = max(bestOpponentValue, oppValue)
+                    validOpponents += 1
+                }
+
+                // Only count simulation if at least one opponent had a valid hand
+                // If all opponents filtered out, reshuffle and retry (don't count as auto-win)
+                guard validOpponents > 0 || !useRangeFilter else { continue }
+
                 // Evaluate my hand
                 myHandCards.removeAll(keepingCapacity: true)
                 myHandCards.append(contentsOf: hand.holeCards)
                 myHandCards.append(contentsOf: communityCards)
-                
-                // UPDATED: Using the new evaluate7 method
+
                 let myValue = Int(intelligence.evaluate7(myHandCards))
-                
-                // Evaluate opponent hands
-                var bestOpponentValue = 0
-                
-                for _ in 0..<opponents {
-                    guard cardIndex + 1 < availableCount else { break }
-                    
-                    oppCards.removeAll(keepingCapacity: true)
-                    oppCards.append(buffer[indices[cardIndex]])
-                    oppCards.append(buffer[indices[cardIndex + 1]])
-                    oppCards.append(contentsOf: communityCards)
-                    cardIndex += 2
-                    
-                    // UPDATED: Using the new evaluate7 method
-                    let oppValue = Int(intelligence.evaluate7(oppCards))
-                    bestOpponentValue = max(bestOpponentValue, oppValue)
-                }
-                
+
                 if myValue > bestOpponentValue {
                     wins += 1
                 } else if myValue == bestOpponentValue {
                     ties += 1
                 }
-                
+
+                validIterations += 1
+
                 // Report progress periodically (every 5000 iters to reduce overhead)
-                if i % 5000 == 0 {
+                if validIterations % 5000 == 0 {
                     PerformanceMonitor.shared.reportCalculation()
                 }
             }
-            
+
             // Store thread-local resources back
             Self.threadLocalBuffer.value = buffer
-            
-            return SimulationResult(wins: wins, ties: ties, total: iterations)
+
+            return SimulationResult(wins: wins, ties: ties, total: validIterations)
         }
     
     private func simulateSingleThread(
         hand: Hand,
         opponents: Int,
         deadCards: Set<Card>,
-        iterations: Int
+        iterations: Int,
+        opponentRange: OpponentRange.RangeType
     ) async -> Double {
         // Report single core usage
         PerformanceMonitor.shared.reportActiveCores(1)
-        
+
         let result = simulateOnCore(
             hand: hand,
             opponents: opponents,
             deadCards: deadCards,
             iterations: iterations,
-            coreIndex: 0
+            coreIndex: 0,
+            opponentRange: opponentRange
         )
-        
+
         guard result.total > 0 else { return 0.0 }
-        
+
         let equity = Double(result.wins) / Double(result.total) +
                     (Double(result.ties) / Double(result.total) * 0.5)
         return min(1.0, max(0.0, equity))

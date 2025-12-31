@@ -3,12 +3,39 @@ import Combine
 
 class CalculationViewModel: ObservableObject {
     @Published var progressUpdate: ProgressUpdate?
-    
+
     private let equityCalculator = EquityCalculator()
-    // FIXED: Now using the new ExploitativeSolver instead of GTOSolver
     private let solver = ExploitativeSolver()
-    private let handEvaluator = HandEvaluator()
     private var startTime: Date?
+
+    /// Hand rank categories derived from PokerIntelligence scores
+    /// Single source of truth - no separate HandEvaluator needed
+    enum HandRank: String {
+        case highCard = "High Card"
+        case pair = "Pair"
+        case twoPair = "Two Pair"
+        case threeOfAKind = "Three of a Kind"
+        case straight = "Straight"
+        case flush = "Flush"
+        case fullHouse = "Full House"
+        case fourOfAKind = "Four of a Kind"
+        case straightFlush = "Straight Flush"
+
+        /// Convert PokerIntelligence score to hand rank
+        static func from(score: Int32) -> HandRank {
+            switch score {
+            case 8_000_000...: return .straightFlush
+            case 7_000_000..<8_000_000: return .fourOfAKind
+            case 6_000_000..<7_000_000: return .fullHouse
+            case 5_000_000..<6_000_000: return .flush
+            case 4_000_000..<5_000_000: return .straight
+            case 3_000_000..<4_000_000: return .threeOfAKind
+            case 2_000_000..<3_000_000: return .twoPair
+            case 1_000_000..<2_000_000: return .pair
+            default: return .highCard
+            }
+        }
+    }
     
     func calculate(gameState: GameState, settings: Settings) async throws -> CalculationResult {
         startTime = Date()
@@ -90,40 +117,61 @@ class CalculationViewModel: ObservableObject {
             holeCards: gameState.holeCards.compactMap { $0 },
             communityCards: gameState.communityCards.compactMap { $0 }
         )
-        
+
+        // Determine opponent range based on their action
+        let opponentRange = determineOpponentRange(gameState: gameState)
+
         return await equityCalculator.calculateQuick(
             hand: hand,
             opponents: settings.numberOfOpponents,
-            deadCards: gameState.deadCards
+            deadCards: gameState.deadCards,
+            opponentRange: opponentRange
         )
     }
-    
+
     private func calculateDeepEquity(gameState: GameState, settings: Settings) async -> Double {
         let hand = Hand(
             holeCards: gameState.holeCards.compactMap { $0 },
             communityCards: gameState.communityCards.compactMap { $0 }
         )
-        
+
+        // Determine opponent range based on their action
+        let opponentRange = determineOpponentRange(gameState: gameState)
+
         return await equityCalculator.calculateDeep(
             hand: hand,
             opponents: settings.numberOfOpponents,
             deadCards: gameState.deadCards,
-            iterations: settings.calculationDepth.iterations
+            iterations: settings.calculationDepth.iterations,
+            opponentRange: opponentRange
+        )
+    }
+
+    /// Determine opponent's likely range based on their betting action
+    private func determineOpponentRange(gameState: GameState) -> OpponentRange.RangeType {
+        let potRelativeBet = gameState.toCall / max(gameState.potSize, 1.0)
+        let isRaise = gameState.toCall > 0
+
+        return OpponentRange.rangeFromAction(
+            potRelativeBet: potRelativeBet,
+            street: gameState.currentStreet,
+            isRaise: isRaise
         )
     }
     
-    private func getHandStrength(gameState: GameState) -> HandEvaluator.HandRank? {
+    private func getHandStrength(gameState: GameState) -> HandRank? {
         let holeCards = gameState.holeCards.compactMap { $0 }
         let communityCards = gameState.communityCards.compactMap { $0 }
-        
+
         guard holeCards.count == 2 else { return nil }
-        
+
         let allCards = holeCards + communityCards
         if allCards.count >= 5 {
-            let handValue = handEvaluator.evaluate(allCards)
-            return handValue.rank
+            // Use PokerIntelligence (same engine as Monte Carlo) for consistency
+            let score = PokerIntelligence.shared.evaluate7(allCards)
+            return HandRank.from(score: score)
         }
-        
+
         return nil
     }
     
@@ -211,31 +259,31 @@ class CalculationViewModel: ObservableObject {
         action: CalculationResult.RecommendedAction,
         equity: Double,
         gameState: GameState,
-        handRank: HandEvaluator.HandRank?,
+        handRank: HandRank?,
         numberOfPlayers: Int
     ) -> String {
         let tableContext = numberOfPlayers <= 3 ? " (short-handed)" : ""
-        
+
         if let rank = handRank {
             switch rank {
             case .straightFlush, .fourOfAKind, .fullHouse:
                 return "Monster hand. Build the pot immediately\(tableContext)."
             case .flush, .straight:
-                 return "Strong hand. Extraction is priority\(tableContext)."
+                return "Strong hand. Extraction is priority\(tableContext)."
             case .threeOfAKind:
-                 return "Very strong. Watch for flush/straight draws."
+                return "Very strong. Watch for flush/straight draws."
             default:
                 break
             }
         }
-        
+
         switch action {
         case .fold:
             return "Equity (\(Int(equity*100))%) doesn't justify the price."
         case .call:
             return "Profitable call based on pot odds and implied value."
         case .raise:
-             return "High equity + fold equity makes raising optimal."
+            return "High equity + fold equity makes raising optimal."
         }
     }
     

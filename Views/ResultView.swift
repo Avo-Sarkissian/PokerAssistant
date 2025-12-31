@@ -7,39 +7,6 @@ struct ResultView: View {
     
     var body: some View {
         VStack(spacing: 15) {
-            // DEBUG INFO - Shows directly in UI
-            VStack(alignment: .leading, spacing: 4) {
-                Text("🔍 DEBUG INFO")
-                    .font(.caption)
-                    .bold()
-                    .foregroundColor(.orange)
-                Text("Equity raw: \(String(format: "%.6f", result.equity))")
-                    .font(.caption2)
-                    .foregroundColor(.orange)
-                Text("Equity %: \(String(format: "%.2f", result.equity * 100))%")
-                    .font(.caption2)
-                    .foregroundColor(.orange)
-                Text("EV: \(String(format: "%.4f", result.expectedValue))")
-                    .font(.caption2)
-                    .foregroundColor(.orange)
-                Text("Calc time: \(String(format: "%.3f", result.calculationTime))s")
-                    .font(.caption2)
-                    .foregroundColor(.orange)
-                if let settings = gameViewModel.settings {
-                    Text("Iterations: \(settings.calculationDepth.iterations)")
-                        .font(.caption2)
-                        .foregroundColor(.orange)
-                }
-                Text("Engine: \(MetalCompute.lastDebugInfo)")
-                    .font(.caption2)
-                    .foregroundColor(.cyan)
-                    .lineLimit(3)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(8)
-            .background(Color.orange.opacity(0.1))
-            .cornerRadius(6)
-            
             // Main Recommendation
             VStack(spacing: 5) {
                 Image(systemName: iconForAction(result.action))

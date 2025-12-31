@@ -24,9 +24,11 @@ struct ContentView: View {
                 }
                 .sheet(isPresented: $showSettings) {
                     SettingsView()
+                        .environmentObject(settings)
                 }
                 .sheet(isPresented: $showDeadCards) {
                     DeadCardsView()
+                        .environmentObject(gameViewModel)
                 }
         }
     }
