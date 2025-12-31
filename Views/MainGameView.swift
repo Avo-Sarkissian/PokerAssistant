@@ -108,14 +108,14 @@ struct MainGameView: View {
             // Store position in game state
             gameViewModel.gameState.position = selectedPosition
         }
-        .sheet(isPresented: $showingCardSelector) {
-            if let selectedIndex = selectedCardIndex {
-                CardSelectorView(
-                    selectedCard: binding(for: selectedIndex),
-                    onDismiss: { showingCardSelector = false }
-                )
-                .environmentObject(gameViewModel)
-            }
+        .sheet(isPresented: $showingCardSelector, onDismiss: {
+            selectedCardIndex = nil
+        }) {
+            CardSelectorSheet(
+                selectedCardIndex: selectedCardIndex,
+                gameViewModel: gameViewModel,
+                onDismiss: { showingCardSelector = false }
+            )
         }
         .alert("Reset Hand?", isPresented: $showingResetAlert) {
             Button("Cancel", role: .cancel) { }
@@ -596,5 +596,51 @@ struct CalculateButton: View {
         if gameViewModel.isCalculating { return "CALCULATING..." }
         else if isShowingResult { return "CALCULATION COMPLETE" }
         else { return "CALCULATE BEST PLAY" }
+    }
+}
+
+/// Wrapper to ensure CardSelectorView always has valid content when sheet appears
+struct CardSelectorSheet: View {
+    let selectedCardIndex: MainGameView.CardSelectionType?
+    @ObservedObject var gameViewModel: GameViewModel
+    let onDismiss: () -> Void
+
+    var body: some View {
+        Group {
+            if let index = selectedCardIndex {
+                CardSelectorView(
+                    selectedCard: cardBinding(for: index),
+                    onDismiss: onDismiss
+                )
+                .environmentObject(gameViewModel)
+            } else {
+                // Fallback - should not happen but prevents blank screen
+                VStack {
+                    Text("Loading...")
+                        .foregroundColor(.secondary)
+                }
+                .onAppear {
+                    // Auto-dismiss if no selection
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        onDismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    private func cardBinding(for selection: MainGameView.CardSelectionType) -> Binding<Card?> {
+        switch selection {
+        case .hole(let index):
+            return Binding(
+                get: { gameViewModel.gameState.holeCards[index] },
+                set: { gameViewModel.gameState.holeCards[index] = $0 }
+            )
+        case .community(let index):
+            return Binding(
+                get: { gameViewModel.gameState.communityCards[index] },
+                set: { gameViewModel.gameState.communityCards[index] = $0 }
+            )
+        }
     }
 }
