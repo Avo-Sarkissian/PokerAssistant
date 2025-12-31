@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct PerformanceMonitorView: View {
-    @StateObject private var monitor = PerformanceMonitor.shared
+    @ObservedObject private var monitor = PerformanceMonitor.shared
     @State private var showDetails = false
     
     var body: some View {
