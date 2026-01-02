@@ -6,8 +6,8 @@ class GameState: ObservableObject {
     @Published var communityCards: [Card?] = [nil, nil, nil, nil, nil]
     @Published var deadCards: Set<Card> = []
     @Published var stack: Double = 20
-    @Published var position: String = "Btn"  // NEW: Track position for solver
-    
+    @Published var position: String = "BTN"  // Track position for solver
+
     @Published var potSize: Double = 0 {
         willSet {
             objectWillChange.send()
@@ -49,16 +49,16 @@ class GameState: ObservableObject {
         }
     }
     
-    // NEW: Check if we're in position (acting last)
+    // Check if we're in position (acting last)
     var isInPosition: Bool {
-        position == "Btn"
+        position == "BTN" || position == "CO"
     }
     
     func reset() {
         holeCards = [nil, nil]
         communityCards = [nil, nil, nil, nil, nil]
         deadCards = []
-        position = "Btn"
+        position = "BTN"
         // Don't reset pot size and toCall - keep them for next hand
     }
     
@@ -69,5 +69,40 @@ class GameState: ObservableObject {
     
     func updateToCall(_ newValue: Double) {
         toCall = newValue
+    }
+}
+
+/// Thread-safe copy of GameState for background calculations
+/// This struct can be safely passed to detached tasks
+struct GameStateCopy: Sendable {
+    let holeCards: [Card?]
+    let communityCards: [Card?]
+    let deadCards: Set<Card>
+    let stack: Double
+    let position: String
+    let potSize: Double
+    let toCall: Double
+    let bigBlind: Double
+
+    init(from gameState: GameState) {
+        self.holeCards = gameState.holeCards
+        self.communityCards = gameState.communityCards
+        self.deadCards = gameState.deadCards
+        self.stack = gameState.stack
+        self.position = gameState.position
+        self.potSize = gameState.potSize
+        self.toCall = gameState.toCall
+        self.bigBlind = gameState.bigBlind
+    }
+
+    var currentStreet: Street {
+        let communityCount = communityCards.compactMap { $0 }.count
+        switch communityCount {
+        case 0: return .preflop
+        case 3: return .flop
+        case 4: return .turn
+        case 5: return .river
+        default: return .preflop
+        }
     }
 }

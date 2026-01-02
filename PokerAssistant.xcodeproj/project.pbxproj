@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		D360702D2F04F26C00751467 /* OpponentRange.swift in Sources */ = {isa = PBXBuildFile; fileRef = D360702C2F04F26C00751467 /* OpponentRange.swift */; };
+		D360702F2F079B2300751467 /* PokerShaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = D360702E2F079B2300751467 /* PokerShaders.metal */; };
 		D3A410202E357FA50057378A /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A4101F2E357FA50057378A /* ContentView.swift */; };
 		D3A4104C2E3582790057378A /* PokerAssistantApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A4104B2E3582790057378A /* PokerAssistantApp.swift */; };
 		D3A4104E2E3583AD0057378A /* Card.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A4104D2E3583AD0057378A /* Card.swift */; };
@@ -54,6 +55,7 @@
 
 /* Begin PBXFileReference section */
 		D360702C2F04F26C00751467 /* OpponentRange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpponentRange.swift; sourceTree = "<group>"; };
+		D360702E2F079B2300751467 /* PokerShaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = PokerShaders.metal; sourceTree = "<group>"; };
 		D3A4101A2E357FA50057378A /* PokerAssistant.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PokerAssistant.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D3A4101F2E357FA50057378A /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		D3A410272E357FA60057378A /* PokerAssistantTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PokerAssistantTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -201,6 +203,7 @@
 		D3A410482E3581EE0057378A /* Engine */ = {
 			isa = PBXGroup;
 			children = (
+				D360702E2F079B2300751467 /* PokerShaders.metal */,
 				D360702C2F04F26C00751467 /* OpponentRange.swift */,
 				D3CB6B3D2EFA627600F86392 /* PerformanceMonitor.swift */,
 				D3A410672E3584700057378A /* EquityCalculator.swift */,
@@ -392,6 +395,7 @@
 				D3A4104E2E3583AD0057378A /* Card.swift in Sources */,
 				D3A410722E3584AD0057378A /* Extensions.swift in Sources */,
 				D3A4104C2E3582790057378A /* PokerAssistantApp.swift in Sources */,
+				D360702F2F079B2300751467 /* PokerShaders.metal in Sources */,
 				D3A4105C2E35840E0057378A /* CalculationProgressView.swift in Sources */,
 				D3A410602E35842F0057378A /* SettingsView.swift in Sources */,
 				D3A410682E3584700057378A /* EquityCalculator.swift in Sources */,

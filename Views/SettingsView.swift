@@ -49,38 +49,42 @@ struct SettingsView: View {
                     .font(.caption)
                 }
                 
-                Section {
-                    Picker("Calculation Depth", selection: $settings.calculationDepth) {
-                        ForEach(Settings.CalculationDepth.allCases, id: \.self) { depth in
-                            Text(depth.rawValue).tag(depth)
+                // Only show depth settings for heads-up (2 players)
+                // Multi-way pots use fast GPU path where depth doesn't matter
+                if settings.numberOfPlayers == 2 {
+                    Section {
+                        Picker("Calculation Depth", selection: $settings.calculationDepth) {
+                            ForEach(Settings.CalculationDepth.allCases, id: \.self) { depth in
+                                Text(depth.rawValue).tag(depth)
+                            }
                         }
+                        .pickerStyle(SegmentedPickerStyle())
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("Simulations:")
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                                Text(settings.calculationDepth.description)
+                                    .bold()
+                            }
+
+                            HStack {
+                                Text("Accuracy:")
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                                Text(settings.calculationDepth.confidenceLevel)
+                                    .foregroundColor(.green)
+                                    .bold()
+                            }
+                        }
+                        .font(.caption)
+                        .padding(.vertical, 4)
+                    } header: {
+                        Text("Calculation Depth")
+                    } footer: {
+                        Text(depthFooterText)
                     }
-                    .pickerStyle(SegmentedPickerStyle())
-                    
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("Simulations:")
-                                .foregroundColor(.secondary)
-                            Spacer()
-                            Text(settings.calculationDepth.description)
-                                .bold()
-                        }
-                        
-                        HStack {
-                            Text("Accuracy:")
-                                .foregroundColor(.secondary)
-                            Spacer()
-                            Text(settings.calculationDepth.confidenceLevel)
-                                .foregroundColor(.green)
-                                .bold()
-                        }
-                    }
-                    .font(.caption)
-                    .padding(.vertical, 4)
-                } header: {
-                    Text("Calculation Depth")
-                } footer: {
-                    Text(depthFooterText)
                 }
                 
                 Section("Optional Features") {

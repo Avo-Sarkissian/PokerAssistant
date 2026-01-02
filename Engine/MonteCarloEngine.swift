@@ -3,39 +3,35 @@ import Accelerate
 
 class MonteCarloEngine {
     private let intelligence = PokerIntelligence.shared
-    
-    // Thread-local storage for maximum performance
-    // This prevents memory allocation overhead inside the hot loop
-    private static let threadLocalRandom = ThreadLocal<RandomNumberGenerator> { SystemRandomNumberGenerator() }
-    private static let threadLocalDeck = ThreadLocal<[Card]> { Card.deck() }
-    private static let threadLocalBuffer = ThreadLocal<[Card]> {
-        var buffer = [Card]()
-        buffer.reserveCapacity(52)
-        return buffer
-    }
-    
+
+    // Pre-built deck (immutable, thread-safe to share)
+    private let deck = Card.deck()
+
     // Use all performance cores on iPhone 16 Pro
     private let coreCount: Int
     private let performanceCores: Int = 6  // A18 Pro has 6 performance cores
-    
+
     init() {
         // Use all available cores for iPhone 16 Pro
         self.coreCount = min(performanceCores, ProcessInfo.processInfo.activeProcessorCount)
-        print("🚀 MonteCarloEngine using \(coreCount) cores")
-        
+
         // Report to performance monitor
         PerformanceMonitor.shared.reportActiveCores(coreCount)
     }
     
-    /// Main simulate function with opponent range weighting for improved accuracy
+    /// Main simulate function with opponent range weighting and early termination
     /// - Parameters:
     ///   - opponentRange: The estimated range of hands opponents might hold
+    ///   - confidenceThreshold: Standard error threshold for early termination (e.g., 0.005 for 0.5%)
+    ///   - maxTimeSeconds: Maximum wall-clock time before forced termination
     func simulate(
         hand: Hand,
         opponents: Int,
         deadCards: Set<Card>,
         iterations: Int,
-        opponentRange: OpponentRange.RangeType = .standard
+        opponentRange: OpponentRange.RangeType = .standard,
+        confidenceThreshold: Double = 0.005,
+        maxTimeSeconds: Double = 10.0
     ) async -> Double {
         guard hand.holeCards.count == 2 else { return 0.0 }
 
@@ -56,42 +52,94 @@ class MonteCarloEngine {
         // Report active cores for this calculation
         PerformanceMonitor.shared.reportActiveCores(coreCount)
 
-        // Distribute work across all cores
-        let iterationsPerCore = iterations / coreCount
-        let remainder = iterations % coreCount
+        let startTime = Date()
+        let batchSize = 50_000 // Run in batches for early termination checks
+        var totalWins = 0
+        var totalTies = 0
+        var totalRuns = 0
+        var iterationsCompleted = 0
 
-        return await withTaskGroup(of: SimulationResult.self) { group in
-            for coreIndex in 0..<coreCount {
-                let coreIterations = iterationsPerCore + (coreIndex < remainder ? 1 : 0)
+        // Run batches until convergence or limits reached
+        while iterationsCompleted < iterations {
+            let remainingIterations = iterations - iterationsCompleted
+            let currentBatchSize = min(batchSize, remainingIterations)
 
-                group.addTask(priority: .userInitiated) {
-                    self.simulateOnCore(
-                        hand: hand,
-                        opponents: opponents,
-                        deadCards: deadCards,
-                        iterations: coreIterations,
-                        coreIndex: coreIndex,
-                        opponentRange: opponentRange
-                    )
+            // Check timeout
+            let elapsed = Date().timeIntervalSince(startTime)
+            if elapsed >= maxTimeSeconds {
+                PerformanceMonitor.shared.reportCalcInfo("CPU: \(iterationsCompleted/1000)K (timeout)")
+                break
+            }
+
+            // Distribute batch across cores
+            let iterationsPerCore = currentBatchSize / coreCount
+            let remainder = currentBatchSize % coreCount
+
+            let batchResults = await withTaskGroup(of: SimulationResult.self) { group in
+                for coreIndex in 0..<coreCount {
+                    let coreIterations = iterationsPerCore + (coreIndex < remainder ? 1 : 0)
+
+                    group.addTask(priority: .userInitiated) {
+                        self.simulateOnCore(
+                            hand: hand,
+                            opponents: opponents,
+                            deadCards: deadCards,
+                            iterations: coreIterations,
+                            coreIndex: coreIndex,
+                            opponentRange: opponentRange
+                        )
+                    }
+                }
+
+                var batchWins = 0
+                var batchTies = 0
+                var batchRuns = 0
+
+                for await result in group {
+                    batchWins += result.wins
+                    batchTies += result.ties
+                    batchRuns += result.total
+                }
+
+                return (wins: batchWins, ties: batchTies, total: batchRuns)
+            }
+
+            totalWins += batchResults.wins
+            totalTies += batchResults.ties
+            totalRuns += batchResults.total
+            iterationsCompleted += currentBatchSize
+
+            // Check for convergence after each batch (but only after minimum samples)
+            if totalRuns >= 50_000 {
+                let equity = Double(totalWins) / Double(totalRuns) +
+                            (Double(totalTies) / Double(totalRuns) * 0.5)
+                let standardError = calculateStandardError(
+                    equity: equity,
+                    sampleSize: totalRuns
+                )
+
+                // Early termination if converged
+                if standardError < confidenceThreshold {
+                    let elapsedTime = Date().timeIntervalSince(startTime)
+                    PerformanceMonitor.shared.reportCalcInfo("CPU: \(totalRuns/1000)K, SE=\(String(format: "%.3f", standardError * 100))%, \(String(format: "%.1f", elapsedTime))s")
+                    break
                 }
             }
-
-            var totalWins = 0
-            var totalTies = 0
-            var totalRuns = 0
-
-            for await result in group {
-                totalWins += result.wins
-                totalTies += result.ties
-                totalRuns += result.total
-            }
-
-            guard totalRuns > 0 else { return 0.0 }
-
-            let equity = Double(totalWins) / Double(totalRuns) +
-                        (Double(totalTies) / Double(totalRuns) * 0.5)
-            return min(1.0, max(0.0, equity))
         }
+
+        guard totalRuns > 0 else { return 0.0 }
+
+        let equity = Double(totalWins) / Double(totalRuns) +
+                    (Double(totalTies) / Double(totalRuns) * 0.5)
+        return min(1.0, max(0.0, equity))
+    }
+
+    /// Calculate standard error for equity estimation
+    private func calculateStandardError(equity: Double, sampleSize: Int) -> Double {
+        // Standard error for proportion: SE = sqrt(p * (1-p) / n)
+        let variance = equity * (1.0 - equity)
+        let standardError = sqrt(variance / Double(sampleSize))
+        return standardError
     }
     
     private struct SimulationResult {
@@ -108,21 +156,21 @@ class MonteCarloEngine {
             coreIndex: Int,
             opponentRange: OpponentRange.RangeType
         ) -> SimulationResult {
-            // Get thread-local resources
-            var rng = Self.threadLocalRandom.value!
-            let deck = Self.threadLocalDeck.value!
-            var buffer = Self.threadLocalBuffer.value!
+            // Create resources locally - avoids GCD deadlock with Swift concurrency
+            // The slight allocation overhead is worth avoiding deadlock
+            var rng = SystemRandomNumberGenerator()
 
             // Pre-calculate used cards
             let usedCards = Set(hand.allCards + Array(deadCards))
 
-            // Create available cards buffer once
-            buffer.removeAll(keepingCapacity: true)
+            // Create available cards buffer
+            var availableCards = [Card]()
+            availableCards.reserveCapacity(52)
             for card in deck where !usedCards.contains(card) {
-                buffer.append(card)
+                availableCards.append(card)
             }
 
-            let availableCount = buffer.count
+            let availableCount = availableCards.count
             let neededCards = (5 - hand.communityCards.count) + (opponents * 2)
 
             guard availableCount >= neededCards else {
@@ -160,7 +208,7 @@ class MonteCarloEngine {
 
                 var cardIndex = 0
                 while communityCards.count < 5 {
-                    communityCards.append(buffer[indices[cardIndex]])
+                    communityCards.append(availableCards[indices[cardIndex]])
                     cardIndex += 1
                 }
 
@@ -169,8 +217,8 @@ class MonteCarloEngine {
                 var validOpponentCount = 0
 
                 for _ in 0..<opponents {
-                    let oppCard1 = buffer[indices[cardIndex]]
-                    let oppCard2 = buffer[indices[cardIndex + 1]]
+                    let oppCard1 = availableCards[indices[cardIndex]]
+                    let oppCard2 = availableCards[indices[cardIndex + 1]]
                     cardIndex += 2
 
                     // Range filter: skip hands outside opponent's likely range
@@ -212,15 +260,6 @@ class MonteCarloEngine {
                 }
             }
 
-            // Store thread-local resources back
-            Self.threadLocalBuffer.value = buffer
-
-            // Report actual valid iterations vs requested (important for range filtering)
-            if useRangeFilter && validIterations < iterations {
-                let efficiency = Int(Double(validIterations) / Double(iterations) * 100)
-                PerformanceMonitor.shared.reportCalcInfo("CPU: \(iterations/1000)K → \(validIterations/1000)K valid (\(efficiency)%)")
-            }
-
             return SimulationResult(wins: wins, ties: ties, total: validIterations)
         }
     
@@ -248,45 +287,5 @@ class MonteCarloEngine {
         let equity = Double(result.wins) / Double(result.total) +
                     (Double(result.ties) / Double(result.total) * 0.5)
         return min(1.0, max(0.0, equity))
-    }
-}
-
-// MARK: - Thread Local Storage
-// Kept this helper class as it is excellent for this architecture
-
-private class ThreadLocal<T> {
-    private var storage = [Thread: T]()
-    private let queue = DispatchQueue(label: "threadlocal", attributes: .concurrent)
-    private let initializer: () -> T
-    
-    init(initialValue: @escaping () -> T) {
-        self.initializer = initialValue
-    }
-    
-    var value: T? {
-        get {
-            let thread = Thread.current
-            return queue.sync {
-                if let value = storage[thread] {
-                    return value
-                } else {
-                    let value = initializer()
-                    queue.async(flags: .barrier) {
-                        self.storage[thread] = value
-                    }
-                    return value
-                }
-            }
-        }
-        set {
-            let thread = Thread.current
-            queue.async(flags: .barrier) {
-                if let newValue = newValue {
-                    self.storage[thread] = newValue
-                } else {
-                    self.storage.removeValue(forKey: thread)
-                }
-            }
-        }
     }
 }

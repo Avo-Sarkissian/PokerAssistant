@@ -7,8 +7,8 @@ struct MainGameView: View {
     @State private var showingResetAlert = false
 
     // Position Toggle State
-    @State private var selectedPosition: String = "Btn"
-    let positions = ["SB", "BB", "Btn"]
+    @State private var selectedPosition: String = "BTN"
+    let positions = ["SB", "BB", "BTN"]
 
     enum CardSelectionType: Identifiable {
         case hole(Int)
@@ -39,26 +39,26 @@ struct MainGameView: View {
                             Text("POSITION")
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
-                            
+
                             Picker("Position", selection: $selectedPosition) {
                                 ForEach(positions, id: \.self) { pos in
                                     Text(pos).tag(pos)
                                 }
                             }
                             .pickerStyle(SegmentedPickerStyle())
-                            .frame(width: 140)
+                            .frame(width: 200)
                             .onChange(of: selectedPosition) { _, newVal in
                                 updateForPosition(newVal)
                             }
                         }
-                        
+
                         Spacer()
-                        
+
                         // Stack Display
                         StackInfoView()
                     }
                     .padding(.horizontal)
-                    
+
                     // Position explanation
                     Text(positionExplanation)
                         .font(.caption2)
@@ -123,7 +123,7 @@ struct MainGameView: View {
             Button("Cancel", role: .cancel) { }
             Button("Reset", role: .destructive) {
                 gameViewModel.resetHand()
-                selectedPosition = "Btn"
+                selectedPosition = "BTN"
                 initializePotWithBlinds()
             }
         } message: {
@@ -138,23 +138,23 @@ struct MainGameView: View {
     private var positionExplanation: String {
         if isPostFlop {
             switch selectedPosition {
-            case "SB":
-                return "Post-flop: You act FIRST (worst position). Consider switching to Btn if you're on the button."
-            case "BB":
-                return "Post-flop: You act SECOND. Consider switching to Btn if you're on the button."
-            case "Btn":
+            case "BTN":
                 return "Post-flop: You act LAST (best position). Maximum information before deciding."
+            case "SB":
+                return "Post-flop: You act FIRST. Out of position against everyone."
+            case "BB":
+                return "Post-flop: You act SECOND. Out of position except vs SB."
             default:
                 return ""
             }
         } else {
             switch selectedPosition {
+            case "BTN":
+                return "Button: Best position. You act last post-flop. Widest opening range."
             case "SB":
-                return "Small Blind: You've posted $\(String(format: "%.2f", settings.smallBlind)). Need $\(String(format: "%.2f", settings.smallBlind)) more to call."
+                return "Small Blind: Posted $\(String(format: "%.2f", settings.smallBlind)). Need $\(String(format: "%.2f", settings.smallBlind)) more to call."
             case "BB":
-                return "Big Blind: You've posted $\(String(format: "%.2f", settings.bigBlind)). You can check if no raise."
-            case "Btn":
-                return "Button: Best position. You act last post-flop."
+                return "Big Blind: Posted $\(String(format: "%.2f", settings.bigBlind)). You can check if no raise."
             default:
                 return ""
             }
@@ -180,8 +180,8 @@ struct MainGameView: View {
             case "SB":
                 // Small Blind: You've posted half, need to complete
                 gameViewModel.gameState.toCall = settings.smallBlind
-            case "Btn":
-                // Button/Other: Must pay full BB to enter
+            case "BTN":
+                // Button: Must pay full BB to enter
                 gameViewModel.gameState.toCall = settings.bigBlind
             default:
                 gameViewModel.gameState.toCall = settings.bigBlind
@@ -389,16 +389,16 @@ struct PotInfoViewEnhanced: View {
     var body: some View {
         VStack(spacing: 15) {
             // Post-flop position reminder
-            if isPostFlop && selectedPosition != "Btn" {
+            if isPostFlop && selectedPosition != "BTN" && selectedPosition != "CO" {
                 HStack {
                     Image(systemName: "info.circle")
                         .foregroundColor(.orange)
-                    Text("Post-flop: Switch to Btn if you're on the button")
+                    Text("Post-flop: Switch to BTN/CO if you're in late position")
                         .font(.caption)
                         .foregroundColor(.orange)
                     Spacer()
-                    Button("Switch") {
-                        selectedPosition = "Btn"
+                    Button("BTN") {
+                        selectedPosition = "BTN"
                     }
                     .font(.caption)
                     .foregroundColor(.blue)
@@ -488,24 +488,46 @@ struct PotInfoViewEnhanced: View {
             }
             
             // Quick Presets - opponent bet sizing
-            HStack(spacing: 10) {
-                Text("Opp bet:")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                
-                ForEach([0.33, 0.5, 0.75, 1.0], id: \.self) { multiplier in
-                    Button(action: {
-                        setBetMultiplier(multiplier)
-                    }) {
-                        Text(multiplier == 1.0 ? "Pot" : "\(Int(multiplier * 100))%")
-                            .font(.caption)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(Color.blue.opacity(0.2))
-                            .cornerRadius(4)
+            VStack(spacing: 8) {
+                HStack(spacing: 10) {
+                    Text("Opp bet:")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    ForEach([0.33, 0.5, 0.75, 1.0], id: \.self) { multiplier in
+                        Button(action: {
+                            setBetMultiplier(multiplier)
+                        }) {
+                            Text(multiplier == 1.0 ? "Pot" : "\(Int(multiplier * 100))%")
+                                .font(.caption)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 4)
+                                .background(Color.blue.opacity(0.2))
+                                .cornerRadius(4)
+                        }
                     }
+                    Spacer()
                 }
-                Spacer()
+
+                HStack(spacing: 10) {
+                    Text("Set pot:")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    ForEach([3.0, 5.0, 10.0, 15.0], id: \.self) { bbMultiplier in
+                        Button(action: {
+                            setPotInBB(bbMultiplier)
+                        }) {
+                            Text("\(Int(bbMultiplier))BB")
+                                .font(.caption)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 4)
+                                .background(Color.green.opacity(0.2))
+                                .cornerRadius(4)
+                        }
+                    }
+                    Spacer()
+                }
             }
         }
         .padding()
@@ -535,6 +557,11 @@ struct PotInfoViewEnhanced: View {
     private func setBetMultiplier(_ multiplier: Double) {
         // This sets the "cost to call" as if opponent bet X% of pot
         updateCall(localPotSize * multiplier)
+    }
+
+    private func setPotInBB(_ bbMultiplier: Double) {
+        // Set pot size in terms of big blinds
+        updatePot(settings.bigBlind * bbMultiplier)
     }
 
     private func updatePot(_ value: Double) {

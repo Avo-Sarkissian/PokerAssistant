@@ -80,39 +80,78 @@ class GameViewModel: ObservableObject {
         let holeCards = gameState.holeCards.compactMap { $0?.displayString }.joined()
         let communityCards = gameState.communityCards.compactMap { $0?.displayString }.joined()
         let deadCards = gameState.deadCards.map { $0.displayString }.sorted().joined()
-        let playerCount = settings?.numberOfPlayers ?? 6
-        return "\(holeCards)-\(communityCards)-\(deadCards)-\(gameState.potSize)-\(gameState.toCall)-\(playerCount)"
+        let opponents = settings?.numberOfOpponents ?? 5
+        return "\(holeCards)-\(communityCards)-\(deadCards)-\(gameState.potSize)-\(gameState.toCall)-\(opponents)-\(gameState.position)"
     }
     
     func calculate() async {
         // Use default settings if none are set
         let settingsToUse = settings ?? Settings()
-        
+
         guard canCalculate else { return }
-        
+
         // Cancel any existing calculation
         calculationTask?.cancel()
-        
+
         isCalculating = true
         calculationResult = nil
         progressUpdate = nil
         stageTimings = [:]
         lastCalculatedState = getCurrentStateString()
-        
-        calculationTask = Task {
+
+        // Capture game state for background calculation
+        let gameStateCopy = GameStateCopy(from: gameState)
+
+        // Use Task.detached to run calculation OFF the main thread
+        // This prevents blocking the UI and allows timeouts to work
+        calculationTask = Task.detached(priority: .userInitiated) { [calculator, weak self] in
             do {
-                let result = try await calculator.calculate(gameState: gameState, settings: settingsToUse)
-                if !Task.isCancelled {
-                    calculationResult = result
-                    isCalculating = false
+                // Wrap in timeout to prevent infinite hangs
+                let result = try await withThrowingTaskGroup(of: CalculationResult?.self) { group in
+                    // Main calculation task
+                    group.addTask {
+                        try await calculator.calculateFromCopy(gameState: gameStateCopy, settings: settingsToUse)
+                    }
+
+                    // Timeout task (15 seconds max)
+                    group.addTask {
+                        try await Task.sleep(nanoseconds: 15_000_000_000)
+                        throw CalculationError.timeout
+                    }
+
+                    // Return first successful result
+                    if let result = try await group.next() {
+                        group.cancelAll()
+                        return result
+                    }
+                    return nil
+                }
+
+                // Update UI on main actor
+                await MainActor.run {
+                    if !Task.isCancelled {
+                        self?.calculationResult = result
+                        self?.isCalculating = false
+                    }
+                }
+            } catch CalculationError.timeout {
+                await MainActor.run {
+                    print("Calculation timed out after 15 seconds")
+                    self?.isCalculating = false
                 }
             } catch {
-                if !Task.isCancelled {
-                    print("Calculation error: \(error)")
-                    isCalculating = false
+                await MainActor.run {
+                    if !Task.isCancelled {
+                        print("Calculation error: \(error)")
+                        self?.isCalculating = false
+                    }
                 }
             }
         }
+    }
+
+    enum CalculationError: Error {
+        case timeout
     }
     
     func resetHand() {

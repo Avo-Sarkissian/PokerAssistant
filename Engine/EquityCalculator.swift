@@ -1,9 +1,49 @@
 import Foundation
 
 class EquityCalculator {
-    // Lazy initialization - engines only initialize on first calculation, not app launch
+    // MonteCarloEngine is lazy since it's only needed for heads-up preflop with range filtering
     private lazy var monteCarloEngine = MonteCarloEngine()
-    private lazy var metalCompute: MetalCompute? = MetalCompute()
+
+    // MetalCompute is initialized in background to not block app launch
+    private var metalCompute: MetalCompute?
+    private var metalInitStarted = false
+    private let metalLock = NSLock()
+
+    init() {
+        // Start Metal initialization in background immediately
+        // Don't wait for it - this allows app to launch quickly
+        startMetalInitInBackground()
+    }
+
+    private func startMetalInitInBackground() {
+        metalLock.lock()
+        guard !metalInitStarted else {
+            metalLock.unlock()
+            return
+        }
+        metalInitStarted = true
+        metalLock.unlock()
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let metal = MetalCompute()
+            self?.metalLock.lock()
+            self?.metalCompute = metal
+            self?.metalLock.unlock()
+        }
+    }
+
+    /// Non-blocking check for Metal availability
+    /// Returns nil immediately if Metal is still initializing (lock held)
+    /// This prevents calculation thread from blocking on Metal init
+    private func getMetalCompute() -> MetalCompute? {
+        // Try to acquire lock without blocking
+        guard metalLock.try() else {
+            // Lock is held by init thread - Metal not ready yet
+            return nil
+        }
+        defer { metalLock.unlock() }
+        return metalCompute
+    }
 
     func calculateQuick(
         hand: Hand,
@@ -15,7 +55,8 @@ class EquityCalculator {
             hand: hand,
             opponents: opponents,
             deadCards: deadCards,
-            iterations: 50_000,
+            iterations: 1_000_000, // Max iterations for Quick
+            confidenceThreshold: 0.01, // 1.0% SE - fastest
             opponentRange: opponentRange
         )
     }
@@ -25,19 +66,24 @@ class EquityCalculator {
         opponents: Int,
         deadCards: Set<Card>,
         iterations: Int,
+        confidenceThreshold: Double = 0.005, // Default: 0.5% SE
         opponentRange: OpponentRange.RangeType = .standard
     ) async -> Double {
         PerformanceMonitor.shared.reportCalculation()
 
-        // When opponent has bet/raised, use CPU for accurate range filtering
-        // GPU doesn't support range weighting, so CPU gives better accuracy
-        let useRangeFiltering = opponentRange != .random
+        // Range filtering ONLY for preflop heads-up situations:
+        // 1. Multi-way pots: rejection sampling too slow (most deals rejected)
+        // 2. Post-flop: opponents can have ANY hand that connected with the board
+        //    (preflop hand rankings don't apply to post-flop betting)
+        // GPU path is fast and accurate for all other situations
+        let isPreflop = hand.communityCards.isEmpty
+        let useRangeFiltering = isPreflop && opponentRange != .random && opponents == 1
 
         if !useRangeFiltering {
-            // No range filtering needed - GPU is faster and equally accurate
+            // No range filtering needed - try GPU first (faster)
             let gpuMaxIterations = min(iterations, 2_000_000)
 
-            if let metal = metalCompute {
+            if let metal = getMetalCompute() {
                 PerformanceMonitor.shared.reportGPUActive(true)
 
                 if let gpuResult = await metal.simulateGPU(
@@ -52,20 +98,21 @@ class EquityCalculator {
                 }
 
                 PerformanceMonitor.shared.reportGPUActive(false)
+                // GPU failed or timed out - fall through to CPU
             }
+            // Metal not ready or GPU returned nil - use CPU fallback
         }
 
-        // CPU path: supports range filtering for better accuracy when opponent has acted
-        // Use user's selected depth - no artificial caps
-        let cpuIterations = iterations
-        let rangeLabel = useRangeFiltering ? " [vs \(opponentRange)]" : ""
-        PerformanceMonitor.shared.reportCalcInfo("CPU: \(cpuIterations / 1000)K\(rangeLabel)")
+        // CPU path: always available, supports range filtering + early termination
+        PerformanceMonitor.shared.reportCalcInfo("CPU fallback...")
         return await monteCarloEngine.simulate(
             hand: hand,
             opponents: opponents,
             deadCards: deadCards,
-            iterations: cpuIterations,
-            opponentRange: opponentRange
+            iterations: iterations,
+            opponentRange: opponentRange,
+            confidenceThreshold: confidenceThreshold,
+            maxTimeSeconds: 10.0 // Hard 10 second cap
         )
     }
 }

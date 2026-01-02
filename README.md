@@ -82,25 +82,50 @@ User Input → CalculationViewModel
 
 ## Performance
 
+### Early Termination Optimization
+
+**New in latest version**: Calculations now use **adaptive early termination** with confidence intervals instead of fixed iteration counts. This achieves maximum accuracy in minimal time.
+
+#### How It Works
+
+The engine runs Monte Carlo simulations in 50K batches and checks for **statistical convergence** after each batch:
+- Calculates **Standard Error (SE)** of the equity estimate
+- Stops when SE drops below the configured threshold
+- Guarantees maximum 10 second runtime
+
+#### Performance by Depth Setting
+
+| Mode     | Confidence | Typical Time | Max Iterations | Use Case              |
+|----------|------------|--------------|----------------|-----------------------|
+| Fast     | SE < 1.0%  | 1-3s         | 1M             | Quick estimates       |
+| Accurate | SE < 0.5%  | 3-6s         | 10M            | Default for play      |
+| Deep     | SE < 0.25% | 5-8s         | 50M            | Important decisions   |
+| Maximum  | SE < 0.1%  | 8-10s        | 100M           | Maximum precision     |
+
+**Key insight**: Simple hands (clear fold/raise) converge in 2-3 seconds. Marginal decisions automatically get more computation, up to 10 seconds.
+
 ### GPU (Metal)
 
-| Iterations | Time    | Accuracy  |
-|------------|---------|-----------|
-| 500K       | ~0.3s   | ±0.07%    |
-| 1M         | ~0.5s   | ±0.05%    |
-| 2M         | ~1.0s   | ±0.035%   |
+| Iterations | Time    | Used When                 |
+|------------|---------|---------------------------|
+| 500K       | ~0.3s   | No opponent action (limp) |
+| 1M         | ~0.5s   | Pre-flop random range     |
+| 2M         | ~1.0s   | Max GPU iterations        |
 
 The Metal shader runs a fully self-contained Monte Carlo simulation:
 - Per-thread result buffers (no atomics)
 - Fisher-Yates shuffle with LCG PRNG
 - 7-card to 5-card best-hand evaluation
+- **Limitation**: No range filtering support (uses random opponent hands)
 
-### CPU Fallback
+### CPU (Multi-Core)
 
 Uses all 6 performance cores on A18 Pro with:
+- **Early termination** - stops when statistically converged
 - Thread-local storage to eliminate allocation overhead
 - Index-based shuffling (faster than object shuffling)
 - Opponent range filtering via rejection sampling
+- Batch processing (50K iterations per batch for convergence checks)
 
 ### Opponent Range Weighting
 
@@ -126,10 +151,15 @@ Run these tests to verify correct operation:
 | A♠ A♥  | 1         | ~85%            | Heads-up with aces       |
 | 7♠ 2♦  | 5         | ~8-10%          | Worst hand in poker      |
 
-The debug output (if enabled) shows:
+The debug panel (expandable at top of screen) shows:
 ```
-GPU: 2000K -> 36.2%
+CPU: 150K, SE=0.412%, 2.3s
 ```
+
+This indicates:
+- 150K iterations completed
+- Standard error of 0.412% (converged)
+- 2.3 seconds elapsed
 
 ## Known Limitations
 
@@ -177,12 +207,16 @@ If you pulled changes that include new `.swift` files (e.g., `OpponentRange.swif
 
 ### Calculation Depth (Settings.swift)
 
-| Mode     | Iterations | Time   | Use Case              |
-|----------|------------|--------|-----------------------|
-| Fast     | 1M         | ~0.2s  | Quick estimates       |
-| Accurate | 10M        | ~1.3s  | Default for play      |
-| Deep     | 50M        | ~6s    | Important decisions   |
-| Maximum  | 100M       | ~13s   | Analysis mode         |
+**Updated**: Depth settings now use confidence thresholds instead of fixed times:
+
+| Mode     | Confidence | Max Iterations | Typical Time | Description           |
+|----------|------------|----------------|--------------|----------------------|
+| Fast     | SE < 1.0%  | 1M             | 1-3s         | Quick estimates      |
+| Accurate | SE < 0.5%  | 10M            | 3-6s         | Default for play     |
+| Deep     | SE < 0.25% | 50M            | 5-8s         | Important decisions  |
+| Maximum  | SE < 0.1%  | 100M           | 8-10s        | Maximum precision    |
+
+**Note**: Times shown are typical - simple decisions finish faster, complex ones use more time (up to 10s max).
 
 ### Default Blinds (Constants.swift)
 

@@ -38,72 +38,129 @@ class CalculationViewModel: ObservableObject {
     }
     
     func calculate(gameState: GameState, settings: Settings) async throws -> CalculationResult {
-        startTime = Date()
-        
-        // Stage 1: Basic Math (0.5s)
-        await updateProgress(stage: .basicMath, progress: 0.0)
-        try await Task.sleep(nanoseconds: 100_000_000)
-        
-        let basicEquity = await calculateBasicEquity(gameState: gameState, settings: settings)
-        await updateProgress(stage: .basicMath, progress: 1.0, isComplete: true)
-        
+        // Convert to thread-safe copy and use the background-safe method
+        let copy = GameStateCopy(from: gameState)
+        return try await calculateFromCopy(gameState: copy, settings: settings)
+    }
+
+    /// Background-safe calculation using thread-safe GameStateCopy
+    /// This method can run on any thread without blocking the main actor
+    func calculateFromCopy(gameState: GameStateCopy, settings: Settings) async throws -> CalculationResult {
+        let calcStartTime = Date()
+
         try Task.checkCancellation()
-        
-        // Stage 2: Deep Equity (2s) - Show intermediate result immediately
-        await updateProgress(stage: .winPercentage, progress: 0.0)
-        
-        let earlyAction = determineEarlyAction(equity: basicEquity, gameState: gameState, settings: settings)
-        await updateProgress(
-            stage: .winPercentage,
-            progress: 0.2,
-            intermediateResult: ProgressUpdate.IntermediateResult(
-                action: earlyAction,
-                confidence: .low
-            ),
-            preliminaryEquity: basicEquity
+
+        // Calculate equity directly - no UI updates from background thread
+        let hand = Hand(
+            holeCards: gameState.holeCards.compactMap { $0 },
+            communityCards: gameState.communityCards.compactMap { $0 }
         )
-        
-        let deepEquity = await calculateDeepEquity(gameState: gameState, settings: settings)
-        let betterAction = determineEarlyAction(equity: deepEquity, gameState: gameState, settings: settings)
-        
-        await updateProgress(
-            stage: .winPercentage,
-            progress: 1.0,
-            isComplete: true,
-            intermediateResult: ProgressUpdate.IntermediateResult(
-                action: betterAction,
-                confidence: .medium
-            ),
-            preliminaryEquity: deepEquity
-        )
-        
+
+        // Determine opponent range
+        let opponentRange: OpponentRange.RangeType
+        if gameState.toCall > 0 {
+            let potRelativeBet = gameState.toCall / max(gameState.potSize, 1.0)
+            opponentRange = OpponentRange.rangeFromAction(
+                potRelativeBet: potRelativeBet,
+                street: gameState.currentStreet,
+                isRaise: true
+            )
+        } else {
+            opponentRange = .random
+        }
+
         try Task.checkCancellation()
-        
-        // Stage 3: Best Strategy (Using new Solver)
-        await updateProgress(stage: .bestStrategy, progress: 0.0)
-        try await Task.sleep(nanoseconds: 100_000_000) // Reduced sleep for speed
-        
-        // FIXED: Calling the new solver
-        let optimalAction = await solver.solve(gameState: gameState, myEquity: deepEquity, settings: settings)
-        
-        await updateProgress(stage: .bestStrategy, progress: 1.0, isComplete: true)
-        
-        try Task.checkCancellation()
-        
-        // Stage 4: Fine Tuning
-        await updateProgress(stage: .fineTuning, progress: 0.0)
-        
-        // We create the final result using the Solver's output
-        let finalResult = await fineTuneStrategy(
-            recommendedAction: optimalAction,
-            equity: deepEquity,
-            gameState: gameState,
-            settings: settings
+
+        // Run equity calculation
+        let equity = await equityCalculator.calculateDeep(
+            hand: hand,
+            opponents: settings.numberOfOpponents,
+            deadCards: gameState.deadCards,
+            iterations: settings.calculationDepth.iterations,
+            confidenceThreshold: settings.calculationDepth.confidenceThreshold,
+            opponentRange: opponentRange
         )
-        
-        await updateProgress(stage: .fineTuning, progress: 1.0, isComplete: true)
-        
-        return finalResult
+
+        try Task.checkCancellation()
+
+        // Determine action using solver logic (simplified inline version)
+        let action = determineAction(equity: equity, gameState: gameState, settings: settings)
+
+        // Build result
+        let foldEV = 0.0
+        let callEV = (equity * (gameState.potSize + gameState.toCall)) - gameState.toCall
+        let rawRaiseAmount = gameState.toCall + (gameState.potSize * 0.75)
+        let raiseAmount = roundToSmallBlind(rawRaiseAmount, smallBlind: settings.smallBlind)
+        let raiseEV = (0.4 * gameState.potSize) + (0.6 * ((equity * (gameState.potSize + raiseAmount)) - raiseAmount))
+
+        let expectedValue: Double
+        switch action {
+        case .fold: expectedValue = foldEV
+        case .call: expectedValue = callEV
+        case .raise: expectedValue = raiseEV
+        }
+
+        let reasoning = generateReasoningFromCopy(action: action, equity: equity, gameState: gameState, numberOfPlayers: settings.numberOfPlayers)
+
+        let alternatives = [
+            CalculationResult.AlternativeAction(action: .fold, expectedValue: foldEV),
+            CalculationResult.AlternativeAction(action: .call, expectedValue: callEV),
+            CalculationResult.AlternativeAction(action: .raise(amount: raiseAmount), expectedValue: raiseEV)
+        ].filter { !areActionsEqual($0.action, action) }
+
+        return CalculationResult(
+            action: action,
+            equity: equity,
+            expectedValue: expectedValue,
+            confidence: .high,
+            reasoning: reasoning,
+            alternativeActions: alternatives,
+            calculationTime: Date().timeIntervalSince(calcStartTime),
+            toCall: gameState.toCall
+        )
+    }
+
+    private func determineAction(equity: Double, gameState: GameStateCopy, settings: Settings) -> CalculationResult.RecommendedAction {
+        let potOdds = gameState.toCall > 0 ? gameState.toCall / (gameState.potSize + gameState.toCall) : 0
+
+        // Check for free check
+        if gameState.toCall == 0 {
+            if equity > 0.6 {
+                let raiseAmount = roundToSmallBlind(gameState.potSize * 0.75, smallBlind: settings.smallBlind)
+                return .raise(amount: raiseAmount)
+            }
+            return .call // Check
+        }
+
+        // With bet to face
+        if equity < potOdds - 0.05 {
+            return .fold
+        } else if equity > potOdds + 0.15 {
+            let raiseAmount = roundToSmallBlind(gameState.toCall + gameState.potSize * 0.75, smallBlind: settings.smallBlind)
+            return .raise(amount: raiseAmount)
+        }
+        return .call
+    }
+
+    private func generateReasoningFromCopy(
+        action: CalculationResult.RecommendedAction,
+        equity: Double,
+        gameState: GameStateCopy,
+        numberOfPlayers: Int
+    ) -> String {
+        let tableContext = numberOfPlayers <= 3 ? " (short-handed)" : ""
+
+        switch action {
+        case .fold:
+            return "Equity (\(Int(equity*100))%) doesn't justify the price."
+        case .call:
+            if gameState.toCall == 0 {
+                return equity < 0.35 ? "Check. Low equity doesn't justify building pot." : "Check to control pot size."
+            }
+            return "Profitable call based on pot odds\(tableContext)."
+        case .raise:
+            return "Strong equity makes raising optimal\(tableContext)."
+        }
     }
     
     // Helper function to round to nearest small blind
@@ -143,6 +200,7 @@ class CalculationViewModel: ObservableObject {
             opponents: settings.numberOfOpponents,
             deadCards: gameState.deadCards,
             iterations: settings.calculationDepth.iterations,
+            confidenceThreshold: settings.calculationDepth.confidenceThreshold,
             opponentRange: opponentRange
         )
     }

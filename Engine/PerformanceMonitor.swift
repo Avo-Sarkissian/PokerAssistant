@@ -48,7 +48,7 @@ class PerformanceMonitor: ObservableObject {
         // Memory Usage
         var info = mach_task_basic_info()
         var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
-        
+
         let result = withUnsafeMutablePointer(to: &info) {
             $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
                 task_info(mach_task_self_,
@@ -57,26 +57,40 @@ class PerformanceMonitor: ObservableObject {
                           &count)
             }
         }
-        
+
+        // Only update @Published properties if values actually changed
+        // This prevents unnecessary SwiftUI re-renders that cause lag
         if result == KERN_SUCCESS {
-            memoryUsageMB = Int(info.resident_size / 1024 / 1024)
+            let newMemory = Int(info.resident_size / 1024 / 1024)
+            if newMemory != memoryUsageMB {
+                memoryUsageMB = newMemory
+            }
         }
-        
+
         // CPU Usage (simplified)
         if let loadAverage = getLoadAverage() {
-            cpuUsage = loadAverage * 100
+            let newCPU = loadAverage * 100
+            if abs(newCPU - cpuUsage) > 1.0 { // Only update if changed by >1%
+                cpuUsage = newCPU
+            }
         }
-        
+
         // Cache hit rate
         let totalCacheAccess = cacheHits + cacheMisses
         if totalCacheAccess > 0 {
-            cacheHitRate = Double(cacheHits) / Double(totalCacheAccess) * 100
+            let newRate = Double(cacheHits) / Double(totalCacheAccess) * 100
+            if abs(newRate - cacheHitRate) > 0.1 {
+                cacheHitRate = newRate
+            }
         }
-        
+
         // Calculations per second - use recent calculations
         let now = Date()
         recentCalculations = recentCalculations.filter { now.timeIntervalSince($0) < 1.0 }
-        calculationsPerSecond = recentCalculations.count
+        let newCalcPerSec = recentCalculations.count
+        if newCalcPerSec != calculationsPerSecond {
+            calculationsPerSecond = newCalcPerSec
+        }
     }
     
     private func getLoadAverage() -> Double? {
@@ -101,11 +115,13 @@ class PerformanceMonitor: ObservableObject {
     
     func reportGPUActive(_ active: Bool) {
         DispatchQueue.main.async {
-            self.isGPUActive = active
-            self.computeMode = active ? "GPU" : "CPU"
+            if self.isGPUActive != active {
+                self.isGPUActive = active
+                self.computeMode = active ? "GPU" : "CPU"
+            }
         }
     }
-    
+
     func reportCalculation() {
         DispatchQueue.main.async {
             self.ensureMonitoringStarted()
@@ -115,29 +131,39 @@ class PerformanceMonitor: ObservableObject {
             }
         }
     }
-    
+
     func reportCacheSize(_ size: Int) {
         DispatchQueue.main.async {
-            self.cacheEntries = size
+            if self.cacheEntries != size {
+                self.cacheEntries = size
+            }
         }
     }
-    
+
     func reportActiveCores(_ cores: Int) {
         DispatchQueue.main.async {
-            self.activeCores = cores
+            if self.activeCores != cores {
+                self.activeCores = cores
+            }
         }
     }
-    
+
     func reportPreloadProgress(_ progress: Int, isComplete: Bool = false) {
         DispatchQueue.main.async {
-            self.preloadProgress = progress
-            self.isPreloadComplete = isComplete
+            if self.preloadProgress != progress {
+                self.preloadProgress = progress
+            }
+            if self.isPreloadComplete != isComplete {
+                self.isPreloadComplete = isComplete
+            }
         }
     }
 
     func reportCalcInfo(_ info: String) {
         DispatchQueue.main.async {
-            self.lastCalcInfo = info
+            if self.lastCalcInfo != info {
+                self.lastCalcInfo = info
+            }
         }
     }
 }

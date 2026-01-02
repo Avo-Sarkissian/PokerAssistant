@@ -2,7 +2,7 @@ import SwiftUI
 
 struct PerformanceMonitorView: View {
     @ObservedObject private var monitor = PerformanceMonitor.shared
-    @State private var showDetails = true  // Start expanded so users see calc details
+    @State private var showDetails = false  // Start collapsed for cleaner UI
     
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
