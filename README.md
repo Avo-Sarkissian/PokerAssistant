@@ -10,11 +10,23 @@ A real-time Texas Hold'em strategy assistant for iOS, featuring GPU-accelerated 
 
 PokerAssistant calculates hand equity and recommends optimal actions (fold/call/raise) in real-time. It uses:
 
-- **Metal GPU compute** for Monte Carlo simulations (up to 2M iterations in ~1s)
-- **Exploitative Solver** with position-aware, SPR-aware decision logic
-- **Opponent Range Weighting** to filter opponent hands by their likely holdings
+- **Metal GPU compute** for Monte Carlo simulations (up to 2M iterations in ~0.5s)
+- **6-core CPU fallback** with early termination for optimal accuracy/speed trade-off
+- **Exploitative decision logic** with pot odds and equity-based thresholds
+- **Opponent Range Weighting** for heads-up preflop situations
 
 The app is designed for $0.50/$1.00 blind cash games with a $20 buy-in.
+
+## Recent Improvements
+
+### Performance & Stability Fixes (Latest)
+
+- **Fixed GPU hang** - Resolved infinite loop in Metal shader caused by unsigned integer underflow
+- **Optimized shuffle algorithm** - Partial Fisher-Yates shuffle (only shuffles needed cards)
+- **Non-blocking architecture** - Metal compilation and initialization don't block UI or calculations
+- **Pre-compiled shaders** - PokerShaders.metal compiles at build time (eliminates 5-10s runtime delay)
+- **Improved fold logic** - Adjusted threshold to require 5% edge over pot odds for calls
+- **App startup** - Reduced from 10+ seconds to ~7 seconds
 
 ## Architecture
 
@@ -24,13 +36,12 @@ PokerAssistant/
 │   ├── PokerAssistantApp.swift    # App entry point, environment setup
 │   └── ContentView.swift          # Root navigation
 ├── Engine/
-│   ├── MetalCompute.swift         # GPU shader for Monte Carlo simulation
-│   ├── MonteCarloEngine.swift     # CPU fallback with multi-core parallelism
-│   ├── EquityCalculator.swift     # GPU-first routing with CPU fallback
-│   ├── PokerIntelligence.swift    # Fast 7-card hand evaluation
-│   ├── ExploitativeSolver.swift   # Position/SPR-aware decision engine
+│   ├── PokerShaders.metal         # Pre-compiled GPU kernel (build-time compilation)
+│   ├── MetalCompute.swift         # GPU compute orchestration with timeout
+│   ├── MonteCarloEngine.swift     # CPU fallback with 6-core parallelism
+│   ├── EquityCalculator.swift     # GPU-first routing with non-blocking fallback
+│   ├── PokerIntelligence.swift    # Fast 7-card hand evaluation (CPU & GPU compatible)
 │   ├── OpponentRange.swift        # Preflop hand rankings (169 hands)
-│   ├── HandEvaluator.swift        # Alternative evaluator for reasoning
 │   └── PerformanceMonitor.swift   # Metrics collection
 ├── Models/
 │   ├── Card.swift                 # Card, Rank, Suit definitions
@@ -108,24 +119,28 @@ The engine runs Monte Carlo simulations in 50K batches and checks for **statisti
 
 | Iterations | Time    | Used When                 |
 |------------|---------|---------------------------|
-| 500K       | ~0.3s   | No opponent action (limp) |
+| 500K       | ~0.25s  | No opponent action (limp) |
 | 1M         | ~0.5s   | Pre-flop random range     |
 | 2M         | ~1.0s   | Max GPU iterations        |
 
-The Metal shader runs a fully self-contained Monte Carlo simulation:
-- Per-thread result buffers (no atomics)
-- Fisher-Yates shuffle with LCG PRNG
-- 7-card to 5-card best-hand evaluation
+The Metal shader (PokerShaders.metal) runs a fully self-contained Monte Carlo simulation:
+- **Pre-compiled at build time** - no runtime compilation delay
+- **Partial Fisher-Yates shuffle** - only shuffles needed cards, preventing infinite loops
+- **Per-thread result buffers** - eliminates need for atomic operations
+- **LCG PRNG** - fast, deterministic random number generation per thread
+- **7-card to 5-card evaluation** - checks all 21 combinations for best hand
+- **5-second timeout** - prevents GPU hangs from freezing the app
 - **Limitation**: No range filtering support (uses random opponent hands)
 
 ### CPU (Multi-Core)
 
 Uses all 6 performance cores on A18 Pro with:
-- **Early termination** - stops when statistically converged
-- Thread-local storage to eliminate allocation overhead
-- Index-based shuffling (faster than object shuffling)
-- Opponent range filtering via rejection sampling
-- Batch processing (50K iterations per batch for convergence checks)
+- **Early termination** - stops when statistically converged (SE below threshold)
+- **Local resource allocation** - avoids GCD/Swift concurrency deadlocks
+- **Index-based shuffling** - faster than object-based approaches
+- **Opponent range filtering** - rejection sampling for heads-up preflop scenarios
+- **Batch processing** - 50K iterations per batch with convergence checks
+- **Hard 10-second timeout** - guarantees calculations complete
 
 ### Opponent Range Weighting
 
@@ -163,11 +178,12 @@ This indicates:
 
 ## Known Limitations
 
-1. **GPU range filtering not implemented** - Metal shader uses random opponent hands; range weighting only applies to CPU fallback
-2. **No hand history persistence** - Settings and state reset on app restart
-3. **No opponent tracking** - Each hand is independent; no villain profiling across sessions
-4. **Post-flop ranges simplified** - Range filtering only applies preflop; post-flop assumes any two cards
-5. **No test coverage** - Unit test stubs exist but are empty
+1. **GPU range filtering not implemented** - Metal shader uses random opponent hands; range weighting only applies to CPU fallback (heads-up preflop)
+2. **App startup time** - Still ~7 seconds on first launch (Metal initialization in background)
+3. **No hand history persistence** - Settings and state reset on app restart
+4. **No opponent tracking** - Each hand is independent; no villain profiling across sessions
+5. **Post-flop ranges simplified** - Range filtering only applies preflop; post-flop assumes any two cards
+6. **No test coverage** - Unit test stubs exist but are empty
 
 ## How to Run
 
