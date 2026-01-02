@@ -132,13 +132,17 @@ class CalculationViewModel: ObservableObject {
             return .call // Check
         }
 
-        // With bet to face
-        if equity < potOdds - 0.05 {
+        // With bet to face - need proper equity vs pot odds
+        // Fold if equity doesn't justify the price (need decent edge for variance/implied odds)
+        // With 25% pot odds, need ~30% equity to call profitably
+        if equity < potOdds + 0.05 {
             return .fold
         } else if equity > potOdds + 0.15 {
+            // Strong equity advantage - raise for value
             let raiseAmount = roundToSmallBlind(gameState.toCall + gameState.potSize * 0.75, smallBlind: settings.smallBlind)
             return .raise(amount: raiseAmount)
         }
+        // Marginal call with small edge
         return .call
     }
 

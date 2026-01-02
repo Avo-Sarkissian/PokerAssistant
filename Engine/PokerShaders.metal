@@ -137,14 +137,19 @@ kernel void monteCarloPoker(
 
     uint wins = 0, ties = 0;
 
+    // Pre-allocate shuffle array once outside loop
+    uint shuffled[52];
+
     for (uint iter = 0; iter < 1000; iter++) {
-        // Fisher-Yates shuffle
-        uint shuffled[52];
+        // Copy available cards for this iteration
         for (uint i = 0; i < availableCount; i++) shuffled[i] = availableCards[i];
 
-        for (uint i = availableCount - 1; i > 0; i--) {
+        // Fisher-Yates partial shuffle - only shuffle what we need
+        // CRITICAL: Use signed int to avoid unsigned underflow causing infinite loop
+        uint neededCards = (5 - params->communityCount) + (params->opponents * 2);
+        for (int i = 0; i < (int)neededCards && i < (int)availableCount; i++) {
             seed = seed * 1664525u + 1013904223u;
-            uint j = seed % (i + 1);
+            uint j = i + (seed % (availableCount - i));
             uint temp = shuffled[i];
             shuffled[i] = shuffled[j];
             shuffled[j] = temp;
