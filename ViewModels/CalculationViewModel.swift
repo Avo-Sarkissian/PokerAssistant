@@ -4,7 +4,9 @@ import Combine
 class CalculationViewModel: ObservableObject {
     @Published var progressUpdate: ProgressUpdate?
 
-    private let equityCalculator = EquityCalculator()
+    // Lazy-loaded to defer Metal initialization until first calculation
+    // This improves app startup time
+    private lazy var equityCalculator = EquityCalculator()
     
     func calculate(gameState: GameState, settings: Settings) async throws -> CalculationResult {
         // Convert to thread-safe copy and use the background-safe method
@@ -121,18 +123,35 @@ class CalculationViewModel: ObservableObject {
         gameState: GameStateCopy,
         numberOfPlayers: Int
     ) -> String {
+        let equityPct = Int(equity * 100)
         let tableContext = numberOfPlayers <= 3 ? " (short-handed)" : ""
+
+        // Calculate pot odds when there's a bet to call
+        let potOdds = gameState.toCall > 0 ? gameState.toCall / (gameState.potSize + gameState.toCall) : 0
+        let potOddsPct = Int(potOdds * 100)
+        let potRatio = gameState.toCall > 0 ? gameState.potSize / gameState.toCall : 0
 
         switch action {
         case .fold:
-            return "Equity (\(Int(equity*100))%) doesn't justify the price."
+            return "Fold: \(equityPct)% equity < \(potOddsPct)% pot odds needed. Paying $\(String(format: "%.2f", gameState.toCall)) into $\(String(format: "%.2f", gameState.potSize)) pot is -EV."
         case .call:
             if gameState.toCall == 0 {
-                return equity < 0.35 ? "Check. Low equity doesn't justify building pot." : "Check to control pot size."
+                if equity < 0.35 {
+                    return "Check: \(equityPct)% equity is marginal. Control pot size and see next card for free."
+                } else if equity < 0.55 {
+                    return "Check: \(equityPct)% equity. No need to build pot without strong hand."
+                } else {
+                    return "Check: \(equityPct)% equity is decent, but pot control is reasonable here."
+                }
             }
-            return "Profitable call based on pot odds\(tableContext)."
-        case .raise:
-            return "Strong equity makes raising optimal\(tableContext)."
+            let edge = equityPct - potOddsPct
+            return "Call: \(equityPct)% equity vs \(potOddsPct)% needed (\(String(format: "%.1f", potRatio)):1 odds). +\(edge)% edge makes calling profitable\(tableContext)."
+        case .raise(let amount):
+            let raiseSize = String(format: "%.2f", amount)
+            if gameState.toCall == 0 {
+                return "Raise to $\(raiseSize): \(equityPct)% equity is strong. Build value with a bet."
+            }
+            return "Raise to $\(raiseSize): \(equityPct)% equity vs \(potOddsPct)% pot odds. Strong edge (+\(equityPct - potOddsPct - 15)%) supports raising for value\(tableContext)."
         }
     }
     
