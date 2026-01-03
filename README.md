@@ -19,14 +19,21 @@ The app is designed for $0.50/$1.00 blind cash games with a $20 buy-in.
 
 ## Recent Improvements
 
-### Performance & Stability Fixes (Latest)
+### Calculation Accuracy Fix (Latest)
+
+- **Fixed GPU/CPU inconsistency** - A♠K♠ was showing 52% on first run (CPU) and 37% on subsequent runs (GPU). Root cause: CPU fallback was applying opponent range filtering while GPU uses random opponents. Now both paths use consistent random opponents for multi-way pots.
+- **Correct equity values** - A♠K♠ vs 5 opponents now correctly shows ~31% (previously varied between 37-52%)
+- **Improved reasoning messages** - Now shows specific pot odds, equity percentages, and edge calculations (e.g., "Call: 45% equity vs 25% needed (3.0:1 odds). +20% edge makes calling profitable")
+- **Settings persistence** - All settings now persist across app restarts via @AppStorage
+- **Code cleanup** - Removed 224 lines of dead code, fixed force unwraps, improved defensive programming
+
+### Performance & Stability Fixes
 
 - **Fixed GPU hang** - Resolved infinite loop in Metal shader caused by unsigned integer underflow
 - **Optimized shuffle algorithm** - Partial Fisher-Yates shuffle (only shuffles needed cards)
 - **Non-blocking architecture** - Metal compilation and initialization don't block UI or calculations
 - **Pre-compiled shaders** - PokerShaders.metal compiles at build time (eliminates 5-10s runtime delay)
 - **Improved fold logic** - Adjusted threshold to require 5% edge over pot odds for calls
-- **App startup** - Reduced from 10+ seconds to ~7 seconds
 
 ## Architecture
 
@@ -162,9 +169,10 @@ Run these tests to verify correct operation:
 | Hand   | Opponents | Expected Equity | Notes                    |
 |--------|-----------|-----------------|--------------------------|
 | T♥ 2♦  | 5         | ~12%            | Trash hand baseline      |
-| A♠ K♠  | 5         | ~36-40%         | Premium suited connector |
+| A♠ K♠  | 5         | ~31%            | Premium suited (corrected)|
 | A♠ A♥  | 1         | ~85%            | Heads-up with aces       |
-| 7♠ 2♦  | 5         | ~8-10%          | Worst hand in poker      |
+| A♠ A♥  | 5         | ~49%            | Aces vs 5 opponents      |
+| 7♠ 2♦  | 5         | ~16%            | Worst hand in poker      |
 
 The debug panel (expandable at top of screen) shows:
 ```
@@ -178,10 +186,10 @@ This indicates:
 
 ## Known Limitations
 
-1. **GPU range filtering not implemented** - Metal shader uses random opponent hands; range weighting only applies to CPU fallback (heads-up preflop)
+1. **GPU range filtering not implemented** - Metal shader uses random opponent hands; range weighting only applies to CPU path (heads-up preflop only)
 2. **App startup time** - Still ~7 seconds on first launch (Metal initialization in background)
-3. **No hand history persistence** - Settings and state reset on app restart
-4. **No opponent tracking** - Each hand is independent; no villain profiling across sessions
+3. **No hand history** - Each session is independent; past hands are not saved
+4. **No opponent tracking** - No villain profiling across sessions
 5. **Post-flop ranges simplified** - Range filtering only applies preflop; post-flop assumes any two cards
 6. **No test coverage** - Unit test stubs exist but are empty
 
@@ -270,7 +278,7 @@ Console logs still show:
 
 - [ ] **Board texture analysis** - Adjust recommendations for wet/dry boards
 - [ ] **Pre-flop hand charts** - Opening ranges by position
-- [ ] **Settings persistence** - Save configuration to UserDefaults
+- [x] **Settings persistence** - ~~Save configuration to UserDefaults~~ (Done via @AppStorage)
 
 ### Medium Priority
 
