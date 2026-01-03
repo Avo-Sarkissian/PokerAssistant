@@ -83,9 +83,10 @@ class HandEvaluator {
         if uniqueRanks.count >= 5 {
             for i in 0...(uniqueRanks.count - 5) {
                 let slice = Array(uniqueRanks[i..<(i + 5)])
-                if slice.count == 5 && slice.first! - slice.last! == 4 {
+                if let first = slice.first, let last = slice.last,
+                   slice.count == 5 && first - last == 4 {
                     hasStraight = true
-                    straightHighCard = slice.first!
+                    straightHighCard = first
                     break
                 }
             }
@@ -119,8 +120,7 @@ class HandEvaluator {
             )
         }
         
-        if hasFlush {
-            let flushSuit = suitCounts.first { $0.value >= 5 }!.key
+        if hasFlush, let flushSuit = suitCounts.first(where: { $0.value >= 5 })?.key {
             let flushCards = cards.filter { $0.suit == flushSuit }.sorted { $0.rank.rawValue > $1.rank.rawValue }
             return HandValue(
                 rank: .flush,

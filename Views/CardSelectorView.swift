@@ -36,7 +36,7 @@ struct CardSelectorView: View {
                             HStack {
                                 ForEach(Array(gameViewModel.gameState.usedCards).sorted(by: {
                                     $0.rank.rawValue > $1.rank.rawValue ||
-                                    ($0.rank.rawValue == $1.rank.rawValue && $0.suit.rawValue < $1.suit.rawValue)
+                                    ($0.rank.rawValue == $1.rank.rawValue && $0.suit.suitIndex < $1.suit.suitIndex)
                                 }), id: \.id) { card in
                                     Text(card.displayString)
                                         .font(.caption)
