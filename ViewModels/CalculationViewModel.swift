@@ -4,9 +4,7 @@ import Combine
 class CalculationViewModel: ObservableObject {
     @Published var progressUpdate: ProgressUpdate?
 
-    // Lazy-loaded to defer Metal initialization until first calculation
-    // This improves app startup time
-    private lazy var equityCalculator = EquityCalculator()
+    private let equityCalculator = EquityCalculator()
     
     func calculate(gameState: GameState, settings: Settings) async throws -> CalculationResult {
         // Convert to thread-safe copy and use the background-safe method

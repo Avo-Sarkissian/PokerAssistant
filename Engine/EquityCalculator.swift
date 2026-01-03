@@ -100,11 +100,23 @@ class EquityCalculator {
                 PerformanceMonitor.shared.reportGPUActive(false)
                 // GPU failed or timed out - fall through to CPU
             }
+
             // Metal not ready or GPU returned nil - use CPU fallback
+            // IMPORTANT: Use .random to match GPU behavior (no range filtering)
+            PerformanceMonitor.shared.reportCalcInfo("CPU (random)...")
+            return await monteCarloEngine.simulate(
+                hand: hand,
+                opponents: opponents,
+                deadCards: deadCards,
+                iterations: iterations,
+                opponentRange: .random,  // Match GPU: no range filtering for multi-way
+                confidenceThreshold: confidenceThreshold,
+                maxTimeSeconds: 10.0
+            )
         }
 
-        // CPU path: always available, supports range filtering + early termination
-        PerformanceMonitor.shared.reportCalcInfo("CPU fallback...")
+        // CPU path with range filtering: only for heads-up preflop
+        PerformanceMonitor.shared.reportCalcInfo("CPU (range filter)...")
         return await monteCarloEngine.simulate(
             hand: hand,
             opponents: opponents,
@@ -112,7 +124,7 @@ class EquityCalculator {
             iterations: iterations,
             opponentRange: opponentRange,
             confidenceThreshold: confidenceThreshold,
-            maxTimeSeconds: 10.0 // Hard 10 second cap
+            maxTimeSeconds: 10.0
         )
     }
 }
