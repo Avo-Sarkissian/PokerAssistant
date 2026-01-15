@@ -1,6 +1,6 @@
 <div align="center">
 
-# ♠️ PokerAssistant
+# PokerAssistant
 
 **Real-Time Texas Hold'em Strategy Engine for iOS**
 
@@ -17,20 +17,20 @@
 
 ---
 
-## 🎯 Overview
+## Overview
 
-PokerAssistant is a native iOS app that calculates hand equity and recommends optimal poker actions in real-time. Built for iPhone 16 Pro, it leverages the A18 Pro chip's GPU and 6 performance cores to run up to **2 million Monte Carlo simulations per second**.
+PokerAssistant is a native iOS app that calculates hand equity and recommends optimal poker actions in real-time. It leverages Metal GPU compute and multi-core CPU parallelism to run up to **2 million Monte Carlo simulations per second**.
 
 ### Key Features
 
-- **⚡ Real-Time Equity Calculation** — Sub-second results using Metal GPU compute
-- **🧠 Exploitative Solver** — Position-aware decisions with dynamic bet sizing
-- **📊 Opponent Range Modeling** — Infers opponent hand ranges from betting patterns
-- **🎛️ Adaptive Precision** — Automatically allocates more compute time to close decisions
+- **Real-Time Equity Calculation** — Sub-second results using Metal GPU compute
+- **Exploitative Solver** — Position-aware decisions with dynamic bet sizing
+- **Opponent Range Modeling** — Infers opponent hand ranges from betting patterns
+- **Adaptive Precision** — Automatically allocates more compute time to close decisions
 
 ---
 
-## 🏗️ Technical Architecture
+## Technical Architecture
 
 ### Hybrid GPU/CPU Compute Pipeline
 
@@ -75,7 +75,7 @@ if rangeFilteringNeeded && headsUp {
 
 ---
 
-## ⚡ Performance Engineering
+## Performance Engineering
 
 ### Statistical Convergence Optimization
 
@@ -107,7 +107,7 @@ Instead of fixed iteration counts, the engine uses **adaptive early termination*
 
 ---
 
-## 🧠 Poker Intelligence
+## Poker Intelligence
 
 ### Hand Evaluation Algorithm
 
@@ -155,7 +155,7 @@ Decision Factors:
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 PokerAssistant/
@@ -191,7 +191,7 @@ PokerAssistant/
 
 ---
 
-## 🔧 Technology Stack
+## Technology Stack
 
 | Layer | Technology |
 |-------|------------|
@@ -204,7 +204,7 @@ PokerAssistant/
 
 ---
 
-## 📊 Accuracy Validation
+## Accuracy Validation
 
 Verified equity calculations against known poker probabilities:
 
@@ -218,7 +218,7 @@ Verified equity calculations against known poker probabilities:
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Requirements
 
@@ -239,7 +239,7 @@ open PokerAssistant.xcodeproj
 
 ---
 
-## 📈 Roadmap
+## Roadmap
 
 - [ ] Board texture analysis (wet/dry board adjustments)
 - [ ] Pre-flop hand charts by position
@@ -250,7 +250,7 @@ open PokerAssistant.xcodeproj
 
 ---
 
-## 🛠️ Technical Highlights
+## Technical Highlights
 
 <table>
 <tr>
@@ -299,8 +299,8 @@ open PokerAssistant.xcodeproj
 
 <div align="center">
 
-**Built with Swift, Metal, and ♠️**
+**Built with Swift and Metal**
 
-*Designed for iPhone 16 Pro (A18 Pro)*
+*Tested on iPhone 16 Pro (A18 Pro) · Compatible with all iOS 17+ devices*
 
 </div>
