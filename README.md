@@ -17,9 +17,9 @@
 
 ## Why This Matters
 
-PokerAssistant is more than a poker tool—it's a **real-time risk and probability model** that demonstrates how hardware acceleration and statistical methods can transform decision-making under uncertainty.
+PokerAssistant is a **real-time risk and probability model** that demonstrates how hardware acceleration and statistical methods can transform decision-making under uncertainty.
 
-The same computational principles used here—Monte Carlo simulation, confidence intervals, and behavioral pattern recognition—are foundational to portfolio risk modeling, options pricing, and scenario analysis in quantitative finance.
+The computational principles used here (Monte Carlo simulation, confidence intervals, and behavioral pattern recognition) are foundational to portfolio risk modeling, options pricing, and scenario analysis in quantitative finance.
 
 <table>
 <tr>
@@ -27,7 +27,7 @@ The same computational principles used here—Monte Carlo simulation, confidence
 
 **The Analogy**
 
-Just as a Growth Equity analyst evaluates hundreds of data points to price a deal and assess downside risk, this engine evaluates **2 million scenarios per second** to price "hand equity"—the probability-weighted expected value of a position given incomplete information.
+Just as a Growth Equity analyst evaluates hundreds of data points to price a deal and assess downside risk, this engine evaluates **2 million scenarios per second** to price "hand equity": the probability-weighted expected value of a position given incomplete information.
 
 The difference? This engine returns a decision recommendation in under 3 seconds.
 
@@ -56,7 +56,7 @@ The core engine runs **Monte Carlo simulations** to estimate the probability of 
 - Known information (your cards, visible community cards)
 - Unknown information (opponent holdings, remaining deck)
 
-Rather than fixed iteration counts, the engine uses **adaptive convergence**—it continues processing until the result meets a confidence threshold:
+Rather than fixed iteration counts, the engine uses **adaptive convergence**, continuing to process until the result meets a confidence threshold:
 
 | Mode | Decision Confidence | Typical Response Time |
 |------|---------------------|----------------------|
@@ -76,7 +76,7 @@ Traditional mobile apps process data on the CPU. This engine offloads computatio
 - **Automatic fallback** to multi-core CPU when GPU is unavailable
 - **Timeout protection** ensures the app never hangs
 
-This isn't a technical flex—it's about **speed-to-insight**. Real-time decision support requires real-time computation.
+The goal is **speed-to-insight**. Real-time decision support requires real-time computation.
 
 ```
 Calculation Pipeline:
@@ -94,16 +94,16 @@ User Input → Probability Engine → Strategy Layer → Recommendation
 Beyond raw probability, the **Exploitative Solver** analyzes opponent behavior to find edges:
 
 **Behavioral Pattern Recognition:**
-- Opponent bet sizing → Inferred hand strength range
-- Position at table → Adjusted aggression expectations
-- Stack-to-pot dynamics → Risk tolerance modeling
+- Opponent bet sizing informs inferred hand strength range
+- Position at table adjusts aggression expectations
+- Stack-to-pot dynamics shape risk tolerance modeling
 
 **Decision Framework:**
 - Expected Value calculation for each action (fold/call/raise)
 - Required edge threshold (must exceed pot odds by 5%)
 - Position-aware adjustments (in-position players can profitably play wider ranges)
 
-This layer transforms probability data into **actionable strategy**—not just "you have 45% equity," but "call: your 45% equity exceeds the 25% required by pot odds, giving you a +20% edge."
+This layer transforms probability data into **actionable strategy**. Instead of "you have 45% equity," the output is "call: your 45% equity exceeds the 25% required by pot odds, giving you a +20% edge."
 
 ---
 
@@ -164,7 +164,7 @@ This approach enabled:
 - Focus on core engine performance rather than scaffolding
 - Systematic debugging of GPU/CPU consistency issues
 
-The result is a codebase optimized for **computational efficiency and maintainability**—not lines of code.
+The result is a codebase optimized for **computational efficiency and maintainability**.
 
 ---
 
