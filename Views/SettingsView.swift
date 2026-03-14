@@ -87,13 +87,66 @@ struct SettingsView: View {
                     }
                 }
                 
+                // MARK: - Game Mode
+
+                Section {
+                    Picker("Game Mode", selection: $settings.gameMode) {
+                        ForEach(GameMode.allCases, id: \.self) { mode in
+                            Text(mode.rawValue).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    if settings.gameMode == .tournament {
+                        Picker("Tournament Phase", selection: $settings.tournamentPhase) {
+                            ForEach(TournamentPhase.allCases, id: \.self) { phase in
+                                Text(phase.rawValue).tag(phase)
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(settings.tournamentPhase.subtitle)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            if settings.tournamentPhase.icmPressure > 0 {
+                                HStack {
+                                    Text("ICM Pressure:")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    Text(String(format: "%.0f%%", settings.tournamentPhase.icmPressure * 100))
+                                        .font(.caption)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(settings.tournamentPhase.icmPressure > 0.25 ? .red : .orange)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                } header: {
+                    Text("Game Mode")
+                } footer: {
+                    if settings.gameMode == .tournament {
+                        Text("Tournament mode adjusts fold thresholds to account for ICM pressure and chip survival.")
+                    } else {
+                        Text("Cash game mode optimizes for EV without chip-survival constraints.")
+                    }
+                }
+
                 Section("Optional Features") {
                     Toggle("Track Opponents", isOn: $settings.trackOpponents)
                     Toggle("Show Math Details", isOn: $settings.showMathDetails)
                     Toggle("Simple Explanations", isOn: $settings.simpleExplanations)
                     Toggle("Progressive Results", isOn: $settings.progressiveResults)
                 }
-                
+
+                Section {
+                    PerformanceMonitorSettingsView()
+                } header: {
+                    Text("Engine Performance")
+                } footer: {
+                    Text("Live diagnostics from the equity calculation engine.")
+                }
+
                 Section {
                 } footer: {
                     Text("More players = harder to win. Your equity decreases with more opponents.")
@@ -115,5 +168,60 @@ struct SettingsView: View {
         case .maximum:
             return "Maximum accuracy for critical all-in decisions."
         }
+    }
+}
+
+// MARK: - Performance Monitor Settings Row
+
+struct PerformanceMonitorSettingsView: View {
+    @ObservedObject private var monitor = PerformanceMonitor.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("Last Calc", systemImage: "cpu")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Text(monitor.lastCalcInfo)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundColor(.primary)
+                    .multilineTextAlignment(.trailing)
+                    .lineLimit(2)
+            }
+
+            HStack {
+                Label("Active Cores", systemImage: "bolt.fill")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Text("\(monitor.activeCores)")
+                    .font(.caption)
+                    .fontWeight(.medium)
+            }
+
+            HStack {
+                Label("Compute", systemImage: "memorychip")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Text(monitor.computeMode)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundColor(monitor.isGPUActive ? .green : .secondary)
+            }
+
+            HStack {
+                Label("Memory", systemImage: "internaldrive")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Text("\(monitor.memoryUsageMB) MB")
+                    .font(.caption)
+                    .fontWeight(.medium)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }

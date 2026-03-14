@@ -9,6 +9,10 @@ struct CalculationResult {
     let alternativeActions: [AlternativeAction]
     let calculationTime: TimeInterval
     let toCall: Double  // Stored at calculation time to prevent UI updates
+    let spr: Double
+    let potOddsDisplay: String?  // e.g. "3.2:1"
+    let boardTexture: String?    // e.g. "Flush draw possible · High board"
+    let street: Street
     
     enum RecommendedAction: Equatable {
         case fold
@@ -66,7 +70,7 @@ struct CalculationResult {
                 } else {
                     let total = toCall + amount
                     return "Raise to $\(String(format: "%.2f", total))"
-                }
+            }
             }
         }
     }

@@ -1,26 +1,29 @@
 import Foundation
 
 class EquityCalculator {
-    // MonteCarloEngine is lazy since it's only needed for heads-up preflop with range filtering
-    private lazy var monteCarloEngine = MonteCarloEngine()
 
-    // MetalCompute is initialized in background to not block app launch
+    // ── Engines ────────────────────────────────────────────────────────────
+
+    /// Exact enumerator: used for river (1–2 opponents) and turn (1 opponent).
+    /// Returns provably correct equity with zero approximation error.
+    private let exact = ExactEnumerator()
+
+    /// GPU Monte Carlo: used for flop and for situations where exact
+    /// enumeration would exceed the 3-second budget.
     private var metalCompute: MetalCompute?
     private var metalInitStarted = false
     private let metalLock = NSLock()
 
+    /// CPU Monte Carlo: fallback when GPU is unavailable.
+    private lazy var monteCarloEngine = MonteCarloEngine()
+
     init() {
-        // Start Metal initialization in background immediately
-        // Don't wait for it - this allows app to launch quickly
         startMetalInitInBackground()
     }
 
     private func startMetalInitInBackground() {
         metalLock.lock()
-        guard !metalInitStarted else {
-            metalLock.unlock()
-            return
-        }
+        guard !metalInitStarted else { metalLock.unlock(); return }
         metalInitStarted = true
         metalLock.unlock()
 
@@ -32,18 +35,13 @@ class EquityCalculator {
         }
     }
 
-    /// Non-blocking check for Metal availability
-    /// Returns nil immediately if Metal is still initializing (lock held)
-    /// This prevents calculation thread from blocking on Metal init
     private func getMetalCompute() -> MetalCompute? {
-        // Try to acquire lock without blocking
-        guard metalLock.try() else {
-            // Lock is held by init thread - Metal not ready yet
-            return nil
-        }
+        guard metalLock.try() else { return nil }
         defer { metalLock.unlock() }
         return metalCompute
     }
+
+    // MARK: – Public API
 
     func calculateQuick(
         hand: Hand,
@@ -51,12 +49,12 @@ class EquityCalculator {
         deadCards: Set<Card>,
         opponentRange: OpponentRange.RangeType = .standard
     ) async -> Double {
-        return await calculateDeep(
+        await calculateDeep(
             hand: hand,
             opponents: opponents,
             deadCards: deadCards,
-            iterations: 1_000_000, // Max iterations for Quick
-            confidenceThreshold: 0.01, // 1.0% SE - fastest
+            iterations: 1_000_000,
+            confidenceThreshold: 0.01,
             opponentRange: opponentRange
         )
     }
@@ -66,63 +64,89 @@ class EquityCalculator {
         opponents: Int,
         deadCards: Set<Card>,
         iterations: Int,
-        confidenceThreshold: Double = 0.005, // Default: 0.5% SE
+        confidenceThreshold: Double = 0.005,
         opponentRange: OpponentRange.RangeType = .standard
     ) async -> Double {
+        guard hand.holeCards.count == 2    else { return 0.0 }
+        guard hand.communityCards.count <= 5 else { return 0.0 }
+        guard opponents >= 1               else { return 0.0 }
+
         PerformanceMonitor.shared.reportCalculation()
 
-        // Range filtering ONLY for preflop heads-up situations:
-        // 1. Multi-way pots: rejection sampling too slow (most deals rejected)
-        // 2. Post-flop: opponents can have ANY hand that connected with the board
-        //    (preflop hand rankings don't apply to post-flop betting)
-        // GPU path is fast and accurate for all other situations
+        // ── Routing ───────────────────────────────────────────────────────
+        //
+        // Exact enumeration (no randomness, provably correct):
+        //   River, 1 opp  → ~990 evals   — sub-millisecond
+        //   River, 2 opp  → ~447K evals  — ~200–500 ms
+        //   Turn,  1 opp  → ~47K evals   — ~50 ms
+        //
+        // GPU Monte Carlo (fast approximation for everything else):
+        //   Flop (any), Turn 2+ opp, River 3+ opp, Preflop (with range filtering)
+
+        switch hand.street {
+
+        case .river:
+            if let equity = exact.calculateRiver(hand: hand, opponents: opponents, deadCards: deadCards) {
+                let method = opponents == 1 ? "Exact river" : "Exact river 2-opp"
+                PerformanceMonitor.shared.reportCalcInfo("\(method) → \(String(format: "%.1f", equity * 100))%")
+                return equity
+            }
+            // 3+ opponents: fall through to GPU MC
+
+        case .turn:
+            if let equity = exact.calculateTurn(hand: hand, opponents: opponents, deadCards: deadCards) {
+                PerformanceMonitor.shared.reportCalcInfo("Exact turn → \(String(format: "%.1f", equity * 100))%")
+                return equity
+            }
+            // 2+ opponents: fall through to GPU MC
+
+        case .flop:
+            // Exact flop enumeration for 1-opp heads-up (~300–500 ms, provably correct)
+            if let equity = exact.calculateFlop(hand: hand, opponents: opponents, deadCards: deadCards) {
+                PerformanceMonitor.shared.reportCalcInfo("Exact flop → \(String(format: "%.1f", equity * 100))%")
+                return equity
+            }
+            // 2+ opponents: fall through to GPU MC
+
+        case .preflop:
+            // Check preflop lookup table first (instant if cached)
+            if let cached = await PreflopEquityTable.shared.equity(
+                hand: hand,
+                opponents: opponents,
+                range: opponentRange != .random ? opponentRange : .standard
+            ) {
+                PerformanceMonitor.shared.reportCalcInfo("Preflop table → \(String(format: "%.1f", cached * 100))%")
+                return cached
+            }
+            // Cache miss (or first run): the table ran a quick sim to warm the cache.
+            // Continue to GPU/CPU MC below for a higher-accuracy result this session.
+        }
+
+        // ── GPU Monte Carlo ───────────────────────────────────────────────
+        // Range filtering only for preflop heads-up (see reasoning in comments below)
         let isPreflop = hand.communityCards.isEmpty
         let useRangeFiltering = isPreflop && opponentRange != .random && opponents == 1
 
         if !useRangeFiltering {
-            // No range filtering needed - try GPU first (faster)
-            let gpuMaxIterations = min(iterations, 2_000_000)
-
-            if let metal = getMetalCompute() {
-                PerformanceMonitor.shared.reportGPUActive(true)
-
-                if let gpuResult = await metal.simulateGPU(
-                    hand: hand,
-                    opponents: opponents,
-                    deadCards: deadCards,
-                    iterations: gpuMaxIterations
-                ), gpuResult > 0.001 {
-                    PerformanceMonitor.shared.reportGPUActive(false)
-                    PerformanceMonitor.shared.reportCalcInfo("GPU: \(gpuMaxIterations/1000)K → \(String(format: "%.1f", gpuResult * 100))%")
-                    return gpuResult
-                }
-
-                PerformanceMonitor.shared.reportGPUActive(false)
-                // GPU failed or timed out - fall through to CPU
+            let gpuIterations = min(iterations, 2_000_000)
+            if let metal = getMetalCompute(),
+               let result = await metal.simulateGPU(hand: hand, opponents: opponents,
+                                                     deadCards: deadCards, iterations: gpuIterations),
+               result > 0.001 {
+                PerformanceMonitor.shared.reportCalcInfo("GPU MC \(gpuIterations / 1000)K → \(String(format: "%.1f", result * 100))%")
+                return result
             }
-
-            // Metal not ready or GPU returned nil - use CPU fallback
-            // IMPORTANT: Use .random to match GPU behavior (no range filtering)
-            PerformanceMonitor.shared.reportCalcInfo("CPU (random)...")
-            return await monteCarloEngine.simulate(
-                hand: hand,
-                opponents: opponents,
-                deadCards: deadCards,
-                iterations: iterations,
-                opponentRange: .random,  // Match GPU: no range filtering for multi-way
-                confidenceThreshold: confidenceThreshold,
-                maxTimeSeconds: 10.0
-            )
         }
 
-        // CPU path with range filtering: only for heads-up preflop
-        PerformanceMonitor.shared.reportCalcInfo("CPU (range filter)...")
+        // ── CPU Monte Carlo fallback ──────────────────────────────────────
+        let range: OpponentRange.RangeType = useRangeFiltering ? opponentRange : .random
+        PerformanceMonitor.shared.reportCalcInfo("CPU MC (range: \(range))...")
         return await monteCarloEngine.simulate(
             hand: hand,
             opponents: opponents,
             deadCards: deadCards,
             iterations: iterations,
-            opponentRange: opponentRange,
+            opponentRange: range,
             confidenceThreshold: confidenceThreshold,
             maxTimeSeconds: 10.0
         )

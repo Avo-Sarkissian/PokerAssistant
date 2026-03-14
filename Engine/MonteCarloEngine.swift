@@ -160,13 +160,17 @@ class MonteCarloEngine {
             // The slight allocation overhead is worth avoiding deadlock
             var rng = SystemRandomNumberGenerator()
 
-            // Pre-calculate used cards
-            let usedCards = Set(hand.allCards + Array(deadCards))
+            // Build used-card index set using rank+suit (not UUID) for correct filtering.
+            // Card.id is a random UUID, so UUID-based Set<Card> membership would always
+            // miss deck cards (different instances) — use a compact 0–51 integer index instead.
+            var usedIndices = Set<Int>(minimumCapacity: 16)
+            for c in hand.allCards  { usedIndices.insert((c.rank.rawValue - 2) * 4 + c.suit.suitIndex) }
+            for c in deadCards      { usedIndices.insert((c.rank.rawValue - 2) * 4 + c.suit.suitIndex) }
 
             // Create available cards buffer
             var availableCards = [Card]()
             availableCards.reserveCapacity(52)
-            for card in deck where !usedCards.contains(card) {
+            for card in deck where !usedIndices.contains((card.rank.rawValue - 2) * 4 + card.suit.suitIndex) {
                 availableCards.append(card)
             }
 

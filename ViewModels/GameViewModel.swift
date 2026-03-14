@@ -8,14 +8,20 @@ class GameViewModel: ObservableObject {
     @Published var calculationResult: CalculationResult?
     @Published var progressUpdate: ProgressUpdate?
     @Published var stageTimings: [ProgressUpdate.CalculationStage: TimeInterval] = [:]
-    
+
+    // Hand history
+    @Published var currentSession: HandSession = HandSession()
+    @Published var allSessions: [HandSession] = []
+
     private let calculator = CalculationViewModel()
     private var cancellables = Set<AnyCancellable>()
     private var calculationTask: Task<Void, Never>?
     private var lastCalculatedState: String = ""
-    
+
     // Add settings reference
     var settings: Settings?
+
+    private let sessionsKey = "handSessions"
     
     init() {
         calculator.$progressUpdate
@@ -27,7 +33,7 @@ class GameViewModel: ObservableObject {
                 }
             }
             .store(in: &cancellables)
-        
+
         // Listen for game state changes to update canCalculate
         gameState.objectWillChange
             .debounce(for: .milliseconds(100), scheduler: DispatchQueue.main)
@@ -35,6 +41,8 @@ class GameViewModel: ObservableObject {
                 self?.objectWillChange.send()
             }
             .store(in: &cancellables)
+
+        loadSessions()
     }
     
     var canCalculate: Bool {
@@ -132,6 +140,9 @@ class GameViewModel: ObservableObject {
                     if !Task.isCancelled {
                         self?.calculationResult = result
                         self?.isCalculating = false
+                        if let result = result {
+                            self?.recordHand(result: result)
+                        }
                     }
                 }
             } catch CalculationError.timeout {
@@ -157,7 +168,7 @@ class GameViewModel: ObservableObject {
     func resetHand() {
         // Cancel any ongoing calculation
         calculationTask?.cancel()
-        
+
         // Reset all state
         gameState.reset()
         calculationResult = nil
@@ -165,5 +176,53 @@ class GameViewModel: ObservableObject {
         stageTimings = [:]
         isCalculating = false
         lastCalculatedState = ""
+    }
+
+    // MARK: - Hand History
+
+    /// Record a completed calculation into the current session.
+    func recordHand(result: CalculationResult) {
+        let holeCards    = gameState.holeCards.compactMap { $0 }
+        let communityCards = gameState.communityCards.compactMap { $0 }
+        guard holeCards.count == 2 else { return }
+
+        let record = HandRecord(
+            holeCards: holeCards,
+            communityCards: communityCards,
+            street: gameState.currentStreet,
+            position: gameState.position,
+            potSize: gameState.potSize,
+            toCall: gameState.toCall,
+            equity: result.equity,
+            action: result.action,
+            reasoning: result.reasoning
+        )
+
+        currentSession.records.append(record)
+        saveSessions()
+    }
+
+    private func loadSessions() {
+        guard let data = UserDefaults.standard.data(forKey: sessionsKey),
+              let sessions = try? JSONDecoder().decode([HandSession].self, from: data) else { return }
+        allSessions = sessions
+    }
+
+    private func saveSessions() {
+        // Persist the current session merged with history
+        var sessions = allSessions.filter { $0.id != currentSession.id }
+        sessions.append(currentSession)
+        // Keep only last 20 sessions
+        if sessions.count > 20 { sessions = Array(sessions.suffix(20)) }
+        allSessions = sessions
+        if let data = try? JSONEncoder().encode(sessions) {
+            UserDefaults.standard.set(data, forKey: sessionsKey)
+        }
+    }
+
+    func clearHistory() {
+        allSessions = []
+        currentSession = HandSession()
+        UserDefaults.standard.removeObject(forKey: sessionsKey)
     }
 }

@@ -93,59 +93,17 @@ struct DeadCardSelector: View {
     @EnvironmentObject var gameViewModel: GameViewModel
     @Binding var showingCardSelector: Bool
     @State private var selectedCard: Card? = nil
-    
+
     var body: some View {
-        NavigationView {
-            VStack {
-                Text("SELECT DEAD CARD")
-                    .font(.headline)
-                    .padding()
-                
-                ScrollView {
-                    VStack(spacing: 20) {
-                        ForEach(Suit.allCases, id: \.self) { suit in
-                            SuitRowView(
-                                suit: suit,
-                                selectedCard: $selectedCard,
-                                usedCards: gameViewModel.gameState.usedCards,
-                                onSelect: {
-                                    if let card = selectedCard {
-                                        gameViewModel.gameState.deadCards.insert(card)
-                                        selectedCard = nil
-                                        showingCardSelector = false
-                                    }
-                                }
-                            )
-                        }
-                    }
-                    .padding()
-                }
-                
-                if !gameViewModel.gameState.usedCards.isEmpty {
-                    VStack {
-                        Text("Already selected:")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack {
-                                ForEach(Array(gameViewModel.gameState.usedCards), id: \.id) { card in
-                                    Text(card.displayString)
-                                        .font(.caption)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 4)
-                                        .background(Color.red.opacity(0.2))
-                                        .cornerRadius(4)
-                                }
-                            }
-                        }
-                    }
-                    .padding()
-                }
+        CardSelectorView(
+            selectedCard: $selectedCard,
+            onDismiss: { showingCardSelector = false }
+        )
+        .environmentObject(gameViewModel)
+        .onChange(of: selectedCard) { _, newCard in
+            if let card = newCard {
+                gameViewModel.gameState.deadCards.insert(card)
             }
-            .navigationBarItems(trailing: Button("Cancel") {
-                showingCardSelector = false
-            })
         }
     }
 }

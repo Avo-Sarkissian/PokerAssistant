@@ -7,6 +7,7 @@ class GameState: ObservableObject {
     @Published var deadCards: Set<Card> = []
     @Published var stack: Double = 20
     @Published var position: String = "BTN"  // Track position for solver
+    @Published var opponentStyle: OpponentStyle = .unknown
 
     @Published var potSize: Double = 0 {
         willSet {
@@ -59,6 +60,7 @@ class GameState: ObservableObject {
         communityCards = [nil, nil, nil, nil, nil]
         deadCards = []
         position = "BTN"
+        opponentStyle = .unknown
         // Don't reset pot size and toCall - keep them for next hand
     }
     
@@ -83,6 +85,7 @@ struct GameStateCopy: Sendable {
     let potSize: Double
     let toCall: Double
     let bigBlind: Double
+    let opponentStyle: OpponentStyle
 
     init(from gameState: GameState) {
         self.holeCards = gameState.holeCards
@@ -93,6 +96,7 @@ struct GameStateCopy: Sendable {
         self.potSize = gameState.potSize
         self.toCall = gameState.toCall
         self.bigBlind = gameState.bigBlind
+        self.opponentStyle = gameState.opponentStyle
     }
 
     var currentStreet: Street {

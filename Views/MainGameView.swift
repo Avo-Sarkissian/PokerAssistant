@@ -4,11 +4,9 @@ struct MainGameView: View {
     @EnvironmentObject var gameViewModel: GameViewModel
     @EnvironmentObject var settings: Settings
     @State private var selectedCardIndex: CardSelectionType?
-    @State private var showingResetAlert = false
-
     // Position Toggle State
     @State private var selectedPosition: String = "BTN"
-    let positions = ["SB", "BB", "BTN"]
+    let positions = ["BTN", "SB", "BB"]
 
     enum CardSelectionType: Identifiable {
         case hole(Int)
@@ -23,14 +21,9 @@ struct MainGameView: View {
     }
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Performance Monitor at the top
-            PerformanceMonitorView()
-                .padding(.horizontal)
-                .padding(.top, 8)
-            
-            ScrollView {
-                VStack(spacing: 16) {
+        ScrollViewReader { proxy in
+        ScrollView {
+            VStack(spacing: 16) {
                     
                     // --- POSITION & STACK HEADER ---
                     HStack(spacing: 12) {
@@ -75,23 +68,34 @@ struct MainGameView: View {
                         selectedCardIndex = .community(index)
                     })
                     
+                    // --- OPPONENT STYLE (only when trackOpponents is enabled) ---
+                    if settings.trackOpponents {
+                        OpponentStyleSelector()
+                    }
+
                     // --- POT CONTROLS ---
                     PotInfoViewEnhanced(selectedPosition: $selectedPosition)
                     
                     // --- ACTION BUTTON OR RESULT ---
                     if gameViewModel.isCalculating {
                         CalculationProgressView()
+                            .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     } else if let result = gameViewModel.calculationResult {
                         ResultView(result: result)
-                            .transition(.opacity)
+                            .id("result")
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
-                    
+
                     CalculateButton()
                         .padding(.top, 4)
-                    
+                        .animation(.easeInOut(duration: 0.3), value: gameViewModel.isCalculating)
+                        .animation(.easeInOut(duration: 0.3), value: gameViewModel.calculationResult != nil)
+
                     // --- RESET BUTTON ---
                     Button(action: {
-                        showingResetAlert = true
+                        gameViewModel.resetHand()
+                        selectedPosition = "BTN"
+                        initializePotWithBlinds()
                     }) {
                         Label("Reset Hand", systemImage: "arrow.clockwise")
                             .font(.caption)
@@ -101,7 +105,14 @@ struct MainGameView: View {
                 }
                 .padding()
             }
-        }
+            .onChange(of: gameViewModel.calculationResult != nil) { _, hasResult in
+                if hasResult {
+                    withAnimation(.easeOut(duration: 0.35)) {
+                        proxy.scrollTo("result", anchor: .top)
+                    }
+                }
+            }
+        } // ScrollViewReader
         .onAppear {
             // Ensure settings are connected
             if gameViewModel.settings == nil {
@@ -118,16 +129,8 @@ struct MainGameView: View {
                 onDismiss: { selectedCardIndex = nil }
             )
             .environmentObject(gameViewModel)
-        }
-        .alert("Reset Hand?", isPresented: $showingResetAlert) {
-            Button("Cancel", role: .cancel) { }
-            Button("Reset", role: .destructive) {
-                gameViewModel.resetHand()
-                selectedPosition = "BTN"
-                initializePotWithBlinds()
-            }
-        } message: {
-            Text("This will clear all cards and reset the calculation.")
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
     }
     
@@ -345,17 +348,24 @@ struct CommunityCardsView: View {
 
 struct CardView: View {
     let card: Card?
-    
+
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 8)
-                .fill(card != nil ? Color.white : Color.gray.opacity(0.3))
+                .fill(card != nil ? Color.white : Color(.systemGray6))
                 .frame(width: 60, height: 80)
-            
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.gray.opacity(0.5), lineWidth: 1)
-                .frame(width: 60, height: 80)
-            
+
+            if card != nil {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color(.systemGray4), lineWidth: 1)
+                    .frame(width: 60, height: 80)
+            } else {
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
+                    .foregroundColor(Color(.systemGray3))
+                    .frame(width: 60, height: 80)
+            }
+
             if let card = card {
                 VStack(spacing: 2) {
                     Text(card.rank.symbol)
@@ -365,11 +375,12 @@ struct CardView: View {
                 }
                 .foregroundColor(card.suit.color == "red" ? .red : .black)
             } else {
-                Text("?")
-                    .font(.system(size: 24))
-                    .foregroundColor(.gray)
+                Image(systemName: "plus")
+                    .font(.system(size: 18, weight: .light))
+                    .foregroundColor(Color(.systemGray3))
             }
         }
+        .shadow(color: card != nil ? Color.black.opacity(0.08) : .clear, radius: 3, x: 0, y: 2)
     }
 }
 
@@ -381,6 +392,8 @@ struct PotInfoViewEnhanced: View {
     @State private var localPotSize: Double = 0
     @State private var localToCall: Double = 0
     @State private var isInitialized = false
+    @State private var editingPot = false
+    @State private var editingCall = false
     
     private var isPostFlop: Bool {
         gameViewModel.gameState.communityCards.compactMap { $0 }.count >= 3
@@ -415,13 +428,16 @@ struct PotInfoViewEnhanced: View {
                     Text("POT SIZE")
                         .font(.caption2)
                         .foregroundColor(.secondary)
-                    Text("$\(String(format: "%.2f", localPotSize))")
-                        .font(.title2)
-                        .bold()
+                    Button(action: { editingPot = true }) {
+                        Text("$\(String(format: "%.2f", localPotSize))")
+                            .font(.title2)
+                            .bold()
+                            .foregroundColor(.primary)
+                    }
                 }
-                
+
                 Spacer()
-                
+
                 HStack(spacing: 15) {
                     Button(action: decrementPot) {
                         Image(systemName: "minus.circle.fill")
@@ -429,7 +445,7 @@ struct PotInfoViewEnhanced: View {
                             .foregroundColor(.red)
                     }
                     .buttonStyle(ScaleButtonStyle())
-                    
+
                     Button(action: incrementPot) {
                         Image(systemName: "plus.circle.fill")
                             .font(.title2)
@@ -438,23 +454,25 @@ struct PotInfoViewEnhanced: View {
                     .buttonStyle(ScaleButtonStyle())
                 }
             }
-            
+
             Divider()
-            
+
             // Cost to Call Control
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(localToCall == 0 ? "CHECK AVAILABLE" : "COST TO CALL")
                         .font(.caption2)
                         .foregroundColor(.secondary)
-                    Text(localToCall == 0 ? "FREE" : "$\(String(format: "%.2f", localToCall))")
-                        .font(.title2)
-                        .bold()
-                        .foregroundColor(localToCall == 0 ? .green : .primary)
+                    Button(action: { editingCall = true }) {
+                        Text(localToCall == 0 ? "FREE" : "$\(String(format: "%.2f", localToCall))")
+                            .font(.title2)
+                            .bold()
+                            .foregroundColor(localToCall == 0 ? .green : .primary)
+                    }
                 }
-                
+
                 Spacer()
-                
+
                 HStack(spacing: 15) {
                     Button(action: decrementCall) {
                         Image(systemName: "minus.circle.fill")
@@ -462,7 +480,7 @@ struct PotInfoViewEnhanced: View {
                             .foregroundColor(.red)
                     }
                     .buttonStyle(ScaleButtonStyle())
-                    
+
                     Button(action: incrementCall) {
                         Image(systemName: "plus.circle.fill")
                             .font(.title2)
@@ -470,6 +488,18 @@ struct PotInfoViewEnhanced: View {
                     }
                     .buttonStyle(ScaleButtonStyle())
                 }
+            }
+            .alert("Set Pot Size", isPresented: $editingPot) {
+                TextField("Amount", value: $localPotSize, format: .currency(code: "USD"))
+                    .keyboardType(.decimalPad)
+                Button("Set") { updatePot(localPotSize) }
+                Button("Cancel", role: .cancel) { }
+            }
+            .alert("Set Cost to Call", isPresented: $editingCall) {
+                TextField("Amount", value: $localToCall, format: .currency(code: "USD"))
+                    .keyboardType(.decimalPad)
+                Button("Set") { updateCall(localToCall) }
+                Button("Cancel", role: .cancel) { }
             }
             
             // Pot Odds Display
@@ -487,8 +517,24 @@ struct PotInfoViewEnhanced: View {
                 }
             }
             
-            // Quick Presets - opponent bet sizing
+            // Quick Presets
             VStack(spacing: 8) {
+                // Preflop action presets (pot + call in one tap)
+                if !isPostFlop {
+                    HStack(spacing: 6) {
+                        Text("Preflop:")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        preflopPreset(label: "Open", bbPot: 2.5, bbCall: 2.5)
+                        preflopPreset(label: "3-bet", bbPot: 9.0, bbCall: 9.0)
+                        preflopPreset(label: "4-bet", bbPot: 25.0, bbCall: 25.0)
+                        preflopPreset(label: "Limp", bbPot: 1.0, bbCall: 1.0)
+                        Spacer()
+                    }
+                }
+
+                // Opponent bet sizing (postflop)
                 HStack(spacing: 10) {
                     Text("Opp bet:")
                         .font(.caption)
@@ -554,6 +600,24 @@ struct PotInfoViewEnhanced: View {
     private func incrementCall() { updateCall(localToCall + settings.smallBlind) }
     private func decrementCall() { updateCall(max(0, localToCall - settings.smallBlind)) }
 
+    @ViewBuilder
+    private func preflopPreset(label: String, bbPot: Double, bbCall: Double) -> some View {
+        Button(action: {
+            let pot  = settings.bigBlind * bbPot
+            let call = settings.bigBlind * bbCall
+            updatePot(pot)
+            updateCall(call)
+        }) {
+            Text(label)
+                .font(.caption)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.purple.opacity(0.2))
+                .foregroundColor(.purple)
+                .cornerRadius(4)
+        }
+    }
+
     private func setBetMultiplier(_ multiplier: Double) {
         // This sets the "cost to call" as if opponent bet X% of pot
         updateCall(localPotSize * multiplier)
@@ -578,6 +642,49 @@ struct PotInfoViewEnhanced: View {
         let cappedValue = min(value, localPotSize)
         localToCall = cappedValue
         gameViewModel.gameState.toCall = cappedValue
+    }
+}
+
+// MARK: - Opponent Style Selector
+
+struct OpponentStyleSelector: View {
+    @EnvironmentObject var gameViewModel: GameViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("OPPONENT STYLE")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(OpponentStyle.allCases, id: \.self) { style in
+                        let isSelected = gameViewModel.gameState.opponentStyle == style
+                        Button(action: {
+                            gameViewModel.gameState.opponentStyle = style
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: style.symbol)
+                                    .font(.caption)
+                                Text(style.rawValue)
+                                    .font(.caption)
+                                    .fontWeight(isSelected ? .semibold : .regular)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(isSelected ? Color.blue : Color(.systemGray5))
+                            .foregroundColor(isSelected ? .white : .primary)
+                            .clipShape(Capsule())
+                        }
+                        .buttonStyle(ScaleButtonStyle())
+                    }
+                }
+                .padding(.horizontal, 1)
+            }
+        }
+        .padding()
+        .background(Color(.systemGray6))
+        .cornerRadius(10)
     }
 }
 

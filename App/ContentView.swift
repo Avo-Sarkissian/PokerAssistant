@@ -5,7 +5,8 @@ struct ContentView: View {
     @EnvironmentObject var settings: Settings
     @State private var showSettings = false
     @State private var showDeadCards = false
-    
+    @State private var showHistory = false
+
     var body: some View {
         NavigationView {
             MainGameView()
@@ -17,8 +18,13 @@ struct ContentView: View {
                         }
                     }
                     ToolbarItem(placement: .navigationBarTrailing) {
-                        Button("Dead Cards") {
-                            showDeadCards = true
+                        HStack(spacing: 16) {
+                            Button(action: { showHistory = true }) {
+                                Image(systemName: "clock.arrow.circlepath")
+                            }
+                            Button("Dead Cards") {
+                                showDeadCards = true
+                            }
                         }
                     }
                 }
@@ -28,6 +34,10 @@ struct ContentView: View {
                 }
                 .sheet(isPresented: $showDeadCards) {
                     DeadCardsView()
+                        .environmentObject(gameViewModel)
+                }
+                .sheet(isPresented: $showHistory) {
+                    HandHistoryView()
                         .environmentObject(gameViewModel)
                 }
         }

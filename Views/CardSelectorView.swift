@@ -4,83 +4,66 @@ struct CardSelectorView: View {
     @Binding var selectedCard: Card?
     @EnvironmentObject var gameViewModel: GameViewModel
     let onDismiss: () -> Void
-    
+
+    private let ranks: [Rank] = Array(Rank.allCases.reversed()) // A → 2
+    private let suits: [Suit] = Suit.allCases
+
     var body: some View {
-        NavigationView {
-            VStack {
-                Text("SELECT CARD")
-                    .font(.headline)
-                    .padding()
-                
-                ScrollView {
-                    VStack(spacing: 20) {
-                        ForEach(Suit.allCases, id: \.self) { suit in
-                            SuitRowView(
-                                suit: suit,
-                                selectedCard: $selectedCard,
-                                usedCards: gameViewModel.gameState.usedCards,
-                                onSelect: onDismiss
-                            )
-                        }
-                    }
-                    .padding()
-                }
-                
-                if !gameViewModel.gameState.usedCards.isEmpty {
-                    VStack {
-                        Text("Already selected:")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack {
-                                ForEach(Array(gameViewModel.gameState.usedCards).sorted(by: {
-                                    $0.rank.rawValue > $1.rank.rawValue ||
-                                    ($0.rank.rawValue == $1.rank.rawValue && $0.suit.suitIndex < $1.suit.suitIndex)
-                                }), id: \.id) { card in
-                                    Text(card.displayString)
-                                        .font(.caption)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 4)
-                                        .background(Color.red.opacity(0.2))
-                                        .cornerRadius(4)
-                                }
-                            }
-                        }
-                    }
-                    .padding()
+        VStack(spacing: 0) {
+            // Handle indicator
+            Capsule()
+                .fill(Color(.systemGray4))
+                .frame(width: 36, height: 4)
+                .padding(.top, 14)
+                .padding(.bottom, 18)
+
+            // Header
+            HStack {
+                Text("Select Card")
+                    .font(.title3.bold())
+                Spacer()
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundColor(Color(.systemGray3))
                 }
             }
-            .navigationBarItems(trailing: Button("Cancel") { onDismiss() })
-        }
-        .navigationViewStyle(StackNavigationViewStyle()) // Force stack style
-    }
-}
+            .padding(.horizontal, 20)
+            .padding(.bottom, 18)
 
-struct SuitRowView: View {
-    let suit: Suit
-    @Binding var selectedCard: Card?
-    let usedCards: Set<Card>
-    let onSelect: () -> Void
-    
-    private let ranks = Rank.allCases.reversed()
-    
-    var body: some View {
-        VStack(alignment: .leading) {
+            // Card grid — 4 rows (one per suit), each row scrolls horizontally
+            VStack(spacing: 8) {
+                ForEach(suits, id: \.self) { suit in
+                    suitRow(suit: suit)
+                }
+            }
+            .padding(.horizontal, 14)
+
+            Spacer(minLength: 24)
+        }
+        .background(Color(.systemBackground))
+    }
+
+    private func suitRow(suit: Suit) -> some View {
+        HStack(spacing: 8) {
             Text(suit.symbol)
-                .font(.title2)
-                .foregroundColor(suit.color == "red" ? .red : .black)
-            
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundColor(suit.color == "red" ? .red : .primary)
+                .frame(width: 28)
+
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
+                HStack(spacing: 6) {
                     ForEach(ranks, id: \.self) { rank in
-                        CardButton(
+                        let isUsed = gameViewModel.gameState.usedCards.contains {
+                            $0.rank == rank && $0.suit == suit
+                        }
+                        CardGridCell(
                             rank: rank,
                             suit: suit,
-                            isUsed: usedCards.contains { $0.rank == rank && $0.suit == suit },
+                            isUsed: isUsed,
                             onSelect: {
                                 selectedCard = Card(rank: rank, suit: suit)
-                                onSelect()
+                                onDismiss()
                             }
                         )
                     }
@@ -90,28 +73,35 @@ struct SuitRowView: View {
     }
 }
 
-struct CardButton: View {
+struct CardGridCell: View {
     let rank: Rank
     let suit: Suit
     let isUsed: Bool
     let onSelect: () -> Void
-    
+
+    private var displaySymbol: String {
+        rank == .ten ? "T" : rank.symbol
+    }
+
     var body: some View {
-        Button(action: {
-            if !isUsed {
-                onSelect()
+        Button(action: { if !isUsed { onSelect() } }) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(isUsed ? Color(.systemGray5) : Color(.systemBackground))
+                    .shadow(
+                        color: isUsed ? .clear : Color.black.opacity(0.1),
+                        radius: 1.5, x: 0, y: 1
+                    )
+
+                Text(displaySymbol)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(
+                        isUsed
+                            ? Color(.systemGray3)
+                            : (suit.color == "red" ? .red : .primary)
+                    )
             }
-        }) {
-            Text(rank.symbol)
-                .font(.title3)
-                .frame(width: 44, height: 60)
-                .background(isUsed ? Color.gray.opacity(0.3) : Color.white)
-                .foregroundColor(isUsed ? .gray : (suit.color == "red" ? .red : .black))
-                .cornerRadius(8)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.gray.opacity(0.5), lineWidth: 1)
-                )
+            .frame(width: 48, height: 52)
         }
         .disabled(isUsed)
     }
