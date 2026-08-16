@@ -41,9 +41,11 @@ class CalculationViewModel: ObservableObject {
         try Task.checkCancellation()
 
         // Run equity calculation
+        // Price against the players still contesting the pot, not every seat at the
+        // table — by the river most of them have folded.
         let equity = await equityCalculator.calculateDeep(
             hand: hand,
-            opponents: settings.numberOfOpponents,
+            opponents: gameState.opponentCount,
             deadCards: gameState.deadCards,
             iterations: settings.calculationDepth.iterations,
             confidenceThreshold: settings.calculationDepth.confidenceThreshold,

@@ -95,7 +95,6 @@ struct MainGameView: View {
                     Button(action: {
                         gameViewModel.resetHand()
                         selectedPosition = "BTN"
-                        initializePotWithBlinds()
                     }) {
                         Label("Reset Hand", systemImage: "arrow.clockwise")
                             .font(.caption)
@@ -165,10 +164,14 @@ struct MainGameView: View {
     }
     
     private func initializePotWithBlinds() {
-        // Start pot with SB + BB
+        // Seed the pot with the posted blinds if it has not been set yet.
         let blindsTotal = settings.smallBlind + settings.bigBlind
         if gameViewModel.gameState.potSize < blindsTotal {
             gameViewModel.gameState.potSize = blindsTotal
+        }
+        gameViewModel.gameState.bigBlind = settings.bigBlind
+        if gameViewModel.gameState.playersInHand > settings.numberOfPlayers {
+            gameViewModel.gameState.playersInHand = settings.numberOfPlayers
         }
         updateForPosition(selectedPosition)
     }
@@ -388,260 +391,249 @@ struct PotInfoViewEnhanced: View {
     @EnvironmentObject var gameViewModel: GameViewModel
     @EnvironmentObject var settings: Settings
     @Binding var selectedPosition: String
-    
-    @State private var localPotSize: Double = 0
-    @State private var localToCall: Double = 0
-    @State private var isInitialized = false
+
     @State private var editingPot = false
     @State private var editingCall = false
-    
+    @State private var draftAmount: Double = 0
+
     private var isPostFlop: Bool {
         gameViewModel.gameState.communityCards.compactMap { $0 }.count >= 3
     }
-    
+
+    /// Derived from game state rather than mirrored into local @State, so the fields
+    /// and the engine can never drift apart.
+    private var entry: PotEntry {
+        PotEntry(potBeforeBet: gameViewModel.gameState.potSize - gameViewModel.gameState.toCall,
+                 toCall: gameViewModel.gameState.toCall)
+    }
+
+    private func commit(_ updated: PotEntry) {
+        gameViewModel.gameState.potSize = updated.totalPot
+        gameViewModel.gameState.toCall = updated.toCall
+    }
+
     var body: some View {
         VStack(spacing: 15) {
-            // Post-flop position reminder
-            if isPostFlop && selectedPosition != "BTN" && selectedPosition != "CO" {
-                HStack {
-                    Image(systemName: "info.circle")
-                        .foregroundColor(.orange)
-                    Text("Post-flop: Switch to BTN/CO if you're in late position")
-                        .font(.caption)
-                        .foregroundColor(.orange)
-                    Spacer()
-                    Button("BTN") {
-                        selectedPosition = "BTN"
-                    }
-                    .font(.caption)
-                    .foregroundColor(.blue)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(Color.orange.opacity(0.1))
-                .cornerRadius(6)
-            }
-            
-            // Pot Size Control
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("POT SIZE")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                    Button(action: { editingPot = true }) {
-                        Text("$\(String(format: "%.2f", localPotSize))")
-                            .font(.title2)
-                            .bold()
-                            .foregroundColor(.primary)
-                    }
-                }
-
-                Spacer()
-
-                HStack(spacing: 15) {
-                    Button(action: decrementPot) {
-                        Image(systemName: "minus.circle.fill")
-                            .font(.title2)
-                            .foregroundColor(.red)
-                    }
-                    .buttonStyle(ScaleButtonStyle())
-
-                    Button(action: incrementPot) {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.title2)
-                            .foregroundColor(.green)
-                    }
-                    .buttonStyle(ScaleButtonStyle())
-                }
-            }
+            playersInHandRow
 
             Divider()
 
-            // Cost to Call Control
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(localToCall == 0 ? "CHECK AVAILABLE" : "COST TO CALL")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                    Button(action: { editingCall = true }) {
-                        Text(localToCall == 0 ? "FREE" : "$\(String(format: "%.2f", localToCall))")
-                            .font(.title2)
-                            .bold()
-                            .foregroundColor(localToCall == 0 ? .green : .primary)
-                    }
-                }
+            amountRow(
+                title: "POT BEFORE THEIR BET",
+                value: entry.potBeforeBet,
+                tint: .primary,
+                onEdit: { draftAmount = entry.potBeforeBet; editingPot = true },
+                onDecrement: { var e = entry; e.setPotBeforeBet(e.potBeforeBet - settings.smallBlind); commit(e) },
+                onIncrement: { var e = entry; e.setPotBeforeBet(e.potBeforeBet + settings.smallBlind); commit(e) }
+            )
 
-                Spacer()
+            Divider()
 
-                HStack(spacing: 15) {
-                    Button(action: decrementCall) {
-                        Image(systemName: "minus.circle.fill")
-                            .font(.title2)
-                            .foregroundColor(.red)
-                    }
-                    .buttonStyle(ScaleButtonStyle())
+            amountRow(
+                title: entry.toCall == 0 ? "THEIR BET — CHECK AVAILABLE" : "THEIR BET",
+                value: entry.toCall,
+                tint: entry.toCall == 0 ? .green : .primary,
+                freeLabel: entry.toCall == 0 ? "FREE" : nil,
+                onEdit: { draftAmount = entry.toCall; editingCall = true },
+                onDecrement: { var e = entry; e.setCall(e.toCall - settings.smallBlind); commit(e) },
+                onIncrement: { var e = entry; e.setCall(e.toCall + settings.smallBlind); commit(e) }
+            )
 
-                    Button(action: incrementCall) {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.title2)
-                            .foregroundColor(.green)
-                    }
-                    .buttonStyle(ScaleButtonStyle())
-                }
-            }
-            .alert("Set Pot Size", isPresented: $editingPot) {
-                TextField("Amount", value: $localPotSize, format: .currency(code: "USD"))
-                    .keyboardType(.decimalPad)
-                Button("Set") { updatePot(localPotSize) }
-                Button("Cancel", role: .cancel) { }
-            }
-            .alert("Set Cost to Call", isPresented: $editingCall) {
-                TextField("Amount", value: $localToCall, format: .currency(code: "USD"))
-                    .keyboardType(.decimalPad)
-                Button("Set") { updateCall(localToCall) }
-                Button("Cancel", role: .cancel) { }
-            }
-            
-            // Pot Odds Display
-            if localToCall > 0 {
-                HStack {
-                    Text("Pot Odds:")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text("\(String(format: "%.1f", (localPotSize / localToCall))):1")
-                        .font(.caption)
-                        .bold()
-                    Text("(need \(String(format: "%.1f", (localToCall / (localPotSize + localToCall)) * 100))% equity)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
-            
-            // Quick Presets
-            VStack(spacing: 8) {
-                // Preflop action presets (pot + call in one tap)
-                if !isPostFlop {
-                    HStack(spacing: 6) {
-                        Text("Preflop:")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+            priceRow
 
-                        preflopPreset(label: "Open", bbPot: 2.5, bbCall: 2.5)
-                        preflopPreset(label: "3-bet", bbPot: 9.0, bbCall: 9.0)
-                        preflopPreset(label: "4-bet", bbPot: 25.0, bbCall: 25.0)
-                        preflopPreset(label: "Limp", bbPot: 1.0, bbCall: 1.0)
-                        Spacer()
-                    }
-                }
-
-                // Opponent bet sizing (postflop)
-                HStack(spacing: 10) {
-                    Text("Opp bet:")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    ForEach([0.33, 0.5, 0.75, 1.0], id: \.self) { multiplier in
-                        Button(action: {
-                            setBetMultiplier(multiplier)
-                        }) {
-                            Text(multiplier == 1.0 ? "Pot" : "\(Int(multiplier * 100))%")
-                                .font(.caption)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 4)
-                                .background(Color.blue.opacity(0.2))
-                                .cornerRadius(4)
-                        }
-                    }
-                    Spacer()
-                }
-
-                HStack(spacing: 10) {
-                    Text("Set pot:")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    ForEach([3.0, 5.0, 10.0, 15.0], id: \.self) { bbMultiplier in
-                        Button(action: {
-                            setPotInBB(bbMultiplier)
-                        }) {
-                            Text("\(Int(bbMultiplier))BB")
-                                .font(.caption)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 4)
-                                .background(Color.green.opacity(0.2))
-                                .cornerRadius(4)
-                        }
-                    }
-                    Spacer()
-                }
-            }
+            presets
         }
         .padding()
         .background(Color(.systemGray6))
         .cornerRadius(10)
-        .onAppear {
-            if !isInitialized {
-                localPotSize = gameViewModel.gameState.potSize
-                localToCall = gameViewModel.gameState.toCall
-                isInitialized = true
-            }
+        .alert("Pot before their bet", isPresented: $editingPot) {
+            TextField("Amount", value: $draftAmount, format: .number)
+                .keyboardType(.decimalPad)
+            Button("Set") { var e = entry; e.setPotBeforeBet(draftAmount); commit(e) }
+            Button("Cancel", role: .cancel) { }
         }
-        .onChange(of: gameViewModel.gameState.potSize) { _, newValue in
-            localPotSize = newValue
-        }
-        .onChange(of: gameViewModel.gameState.toCall) { _, newValue in
-            localToCall = newValue
+        .alert("Their bet", isPresented: $editingCall) {
+            TextField("Amount", value: $draftAmount, format: .number)
+                .keyboardType(.decimalPad)
+            Button("Set") { var e = entry; e.setCall(draftAmount); commit(e) }
+            Button("Cancel", role: .cancel) { }
         }
     }
-    
-    // All increments/decrements use smallBlind as the unit
-    private func incrementPot() { updatePot(localPotSize + settings.smallBlind) }
-    private func decrementPot() { updatePot(max(settings.smallBlind + settings.bigBlind, localPotSize - settings.smallBlind)) }
-    private func incrementCall() { updateCall(localToCall + settings.smallBlind) }
-    private func decrementCall() { updateCall(max(0, localToCall - settings.smallBlind)) }
+
+    // MARK: - Players still in the hand
+
+    private var playersInHandRow: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("PLAYERS IN HAND")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                Text("\(gameViewModel.gameState.playersInHand) players · \(gameViewModel.gameState.opponentCount) opponent\(gameViewModel.gameState.opponentCount == 1 ? "" : "s")")
+                    .font(.subheadline.bold())
+                    .foregroundColor(.primary)
+            }
+
+            Spacer()
+
+            Stepper("") {
+                gameViewModel.gameState.playersInHand = min(9, gameViewModel.gameState.playersInHand + 1)
+            } onDecrement: {
+                gameViewModel.gameState.playersInHand = max(2, gameViewModel.gameState.playersInHand - 1)
+            }
+            .labelsHidden()
+            .accessibilityLabel("Players still in the hand")
+            .accessibilityValue("\(gameViewModel.gameState.playersInHand)")
+        }
+    }
+
+    // MARK: - Amount rows
 
     @ViewBuilder
-    private func preflopPreset(label: String, bbPot: Double, bbCall: Double) -> some View {
-        Button(action: {
-            let pot  = settings.bigBlind * bbPot
-            let call = settings.bigBlind * bbCall
-            updatePot(pot)
-            updateCall(call)
-        }) {
-            Text(label)
-                .font(.caption)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.purple.opacity(0.2))
-                .foregroundColor(.purple)
-                .cornerRadius(4)
+    private func amountRow(title: String,
+                           value: Double,
+                           tint: Color,
+                           freeLabel: String? = nil,
+                           onEdit: @escaping () -> Void,
+                           onDecrement: @escaping () -> Void,
+                           onIncrement: @escaping () -> Void) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                Button(action: onEdit) {
+                    Text(freeLabel ?? "$\(String(format: "%.2f", value))")
+                        .font(.title2)
+                        .bold()
+                        .foregroundColor(tint)
+                }
+                .accessibilityLabel(title)
+                .accessibilityHint("Double tap to type an amount")
+            }
+
+            Spacer()
+
+            HStack(spacing: 15) {
+                Button(action: onDecrement) {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.title2)
+                        .foregroundColor(.red)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(ScaleButtonStyle())
+                .accessibilityLabel("Decrease \(title)")
+
+                Button(action: onIncrement) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.title2)
+                        .foregroundColor(.green)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(ScaleButtonStyle())
+                .accessibilityLabel("Increase \(title)")
+            }
         }
     }
 
-    private func setBetMultiplier(_ multiplier: Double) {
-        // This sets the "cost to call" as if opponent bet X% of pot
-        updateCall(localPotSize * multiplier)
-    }
+    // MARK: - Price
 
-    private func setPotInBB(_ bbMultiplier: Double) {
-        // Set pot size in terms of big blinds
-        updatePot(settings.bigBlind * bbMultiplier)
-    }
-
-    private func updatePot(_ value: Double) {
-        localPotSize = value
-        gameViewModel.gameState.potSize = value
-        // If toCall exceeds new pot size, cap it
-        if localToCall > value {
-            updateCall(value)
+    @ViewBuilder
+    private var priceRow: some View {
+        if let ratio = entry.potOddsRatio {
+            HStack(spacing: 6) {
+                Text("Pot")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text("$\(String(format: "%.2f", entry.totalPot))")
+                    .font(.caption.bold())
+                Text("·")
+                    .foregroundColor(.secondary)
+                Text("\(String(format: "%.1f", ratio)):1")
+                    .font(.caption.bold())
+                Text("· need \(String(format: "%.1f", entry.requiredEquity * 100))% to call")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+            .accessibilityElement(children: .combine)
         }
     }
 
-    private func updateCall(_ value: Double) {
-        // Cost to call cannot exceed pot size (opponent can't bet more than the pot in most games)
-        let cappedValue = min(value, localPotSize)
-        localToCall = cappedValue
-        gameViewModel.gameState.toCall = cappedValue
+    // MARK: - Presets
+
+    private var presets: some View {
+        VStack(spacing: 8) {
+            if !isPostFlop {
+                HStack(spacing: 6) {
+                    Text("Preflop:")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    ForEach(PreflopPreset.allCases) { preset in
+                        Button {
+                            commit(PotEntry.preflop(preset,
+                                                    heroPosition: selectedPosition,
+                                                    smallBlind: settings.smallBlind,
+                                                    bigBlind: settings.bigBlind))
+                        } label: {
+                            Text(preset.label)
+                                .font(.caption)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 8)
+                                .background(Color.purple.opacity(0.2))
+                                .foregroundColor(.purple)
+                                .cornerRadius(4)
+                        }
+                    }
+                    Spacer()
+                }
+            }
+
+            HStack(spacing: 10) {
+                Text("Opp bet:")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                ForEach([0.33, 0.5, 0.75, 1.0, 1.5], id: \.self) { multiplier in
+                    Button {
+                        var e = entry
+                        e.applyOpponentBet(fractionOfPot: multiplier)
+                        commit(e)
+                    } label: {
+                        Text(multiplier == 1.0 ? "Pot" : (multiplier > 1 ? "\(String(format: "%.1f", multiplier))x" : "\(Int(multiplier * 100))%"))
+                            .font(.caption)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .background(Color.blue.opacity(0.2))
+                            .cornerRadius(4)
+                    }
+                }
+                Spacer()
+            }
+
+            HStack(spacing: 10) {
+                Text("Set pot:")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                ForEach([3.0, 5.0, 10.0, 15.0, 30.0], id: \.self) { bbMultiplier in
+                    Button {
+                        var e = entry
+                        e.setPotBeforeBet(settings.bigBlind * bbMultiplier)
+                        commit(e)
+                    } label: {
+                        Text("\(Int(bbMultiplier))BB")
+                            .font(.caption)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .background(Color.green.opacity(0.2))
+                            .cornerRadius(4)
+                    }
+                }
+                Spacer()
+            }
+        }
     }
 }
 

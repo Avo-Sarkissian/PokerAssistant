@@ -14,6 +14,7 @@
 		D3A4104E2E3583AD0057378A /* Card.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A4104D2E3583AD0057378A /* Card.swift */; };
 		D3A410502E3583C00057378A /* Hand.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A4104F2E3583C00057378A /* Hand.swift */; };
 		D3A410522E3583CD0057378A /* GameState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A410512E3583CD0057378A /* GameState.swift */; };
+		D3A4109B2E36A0010057378A /* PotEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A4109A2E36A0010057378A /* PotEntry.swift */; };
 		D3A410542E3583D80057378A /* CalculationResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A410532E3583D80057378A /* CalculationResult.swift */; };
 		D3A410562E3583E60057378A /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A410552E3583E60057378A /* Settings.swift */; };
 		D3A410582E3583F30057378A /* MainGameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A410572E3583F30057378A /* MainGameView.swift */; };
@@ -67,6 +68,7 @@
 		D3A4104D2E3583AD0057378A /* Card.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Card.swift; sourceTree = "<group>"; };
 		D3A4104F2E3583C00057378A /* Hand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Hand.swift; sourceTree = "<group>"; };
 		D3A410512E3583CD0057378A /* GameState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameState.swift; sourceTree = "<group>"; };
+		D3A4109A2E36A0010057378A /* PotEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PotEntry.swift; sourceTree = "<group>"; };
 		D3A410532E3583D80057378A /* CalculationResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalculationResult.swift; sourceTree = "<group>"; };
 		D3A410552E3583E60057378A /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings.swift; sourceTree = "<group>"; };
 		D3A410572E3583F30057378A /* MainGameView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainGameView.swift; sourceTree = "<group>"; };
@@ -174,6 +176,7 @@
 		D3A410452E3581CF0057378A /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				D3A4109A2E36A0010057378A /* PotEntry.swift */,
 				D3A4104D2E3583AD0057378A /* Card.swift */,
 				D3A4104F2E3583C00057378A /* Hand.swift */,
 				D3A410512E3583CD0057378A /* GameState.swift */,
@@ -385,6 +388,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D3A4109B2E36A0010057378A /* PotEntry.swift in Sources */,
 				D3A410542E3583D80057378A /* CalculationResult.swift in Sources */,
 				D3A410742E3584B60057378A /* Constants.swift in Sources */,
 				D3A4106E2E3584940057378A /* MetalCompute.swift in Sources */,

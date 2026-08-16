@@ -1,6 +1,20 @@
 import Foundation
 import Accelerate
 
+/// Small, fast, seedable generator. Having one lets a caller pin an equity for a
+/// regression test; `SystemRandomNumberGenerator` cannot be seeded at all.
+struct SplitMix64: RandomNumberGenerator {
+    private var state: UInt64
+    init(seed: UInt64) { self.state = seed }
+    mutating func next() -> UInt64 {
+        state = state &+ 0x9E3779B97F4A7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
+        z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
+        return z ^ (z >> 31)
+    }
+}
+
 class MonteCarloEngine {
     /// The single hand-ranking implementation for every CPU path. It is stateless, so
     /// one instance is safe to share across the worker tasks below.
@@ -33,7 +47,8 @@ class MonteCarloEngine {
         iterations: Int,
         opponentRange: OpponentRange.RangeType = .standard,
         confidenceThreshold: Double = 0.005,
-        maxTimeSeconds: Double = 10.0
+        maxTimeSeconds: Double = 10.0,
+        seed: UInt64? = nil
     ) async -> Double {
         guard hand.holeCards.count == 2 else { return 0.0 }
 
@@ -47,7 +62,8 @@ class MonteCarloEngine {
                 opponents: opponents,
                 deadCards: deadCards,
                 iterations: iterations,
-                opponentRange: opponentRange
+                opponentRange: opponentRange,
+                seed: seed
             )
         }
 
@@ -59,6 +75,12 @@ class MonteCarloEngine {
         var totalEquity = 0.0
         var totalRuns = 0
         var iterationsCompleted = 0
+        var batchIndex = 0
+
+        // With a caller-supplied seed every worker's stream is derived deterministically,
+        // so the same call returns the same number. Without one we start from system
+        // randomness, which is the normal path.
+        let baseSeed = seed ?? UInt64.random(in: UInt64.min...UInt64.max)
 
         // Run batches until convergence or limits reached
         while iterationsCompleted < iterations {
@@ -76,36 +98,45 @@ class MonteCarloEngine {
             let iterationsPerCore = currentBatchSize / coreCount
             let remainder = currentBatchSize % coreCount
 
-            let batchResults = await withTaskGroup(of: SimulationResult.self) { group in
-                for coreIndex in 0..<coreCount {
+            let batchSeed = baseSeed &+ UInt64(batchIndex) &* 0x2545F4914F6CDD1D
+            let workerCount = coreCount
+
+            let batchResults = await withTaskGroup(of: (Int, SimulationResult).self) { group in
+                for coreIndex in 0..<workerCount {
                     let coreIterations = iterationsPerCore + (coreIndex < remainder ? 1 : 0)
 
                     group.addTask(priority: .userInitiated) {
-                        self.simulateOnCore(
+                        (coreIndex, self.simulateOnCore(
                             hand: hand,
                             opponents: opponents,
                             deadCards: deadCards,
                             iterations: coreIterations,
                             coreIndex: coreIndex,
-                            opponentRange: opponentRange
-                        )
+                            opponentRange: opponentRange,
+                            seed: batchSeed
+                        ))
                     }
                 }
 
-                var batchEquity = 0.0
-                var batchRuns = 0
+                // Collect by worker index and sum in that fixed order: floating-point
+                // addition is not associative, so summing in completion order would
+                // make an otherwise-seeded run vary by a few ulps.
+                var perWorkerEquity = [Double](repeating: 0, count: workerCount)
+                var perWorkerRuns = [Int](repeating: 0, count: workerCount)
 
-                for await result in group {
-                    batchEquity += result.equitySum
-                    batchRuns += result.total
+                for await (index, result) in group {
+                    perWorkerEquity[index] = result.equitySum
+                    perWorkerRuns[index] = result.total
                 }
 
-                return (equitySum: batchEquity, total: batchRuns)
+                return (equitySum: perWorkerEquity.reduce(0, +),
+                        total: perWorkerRuns.reduce(0, +))
             }
 
             totalEquity += batchResults.equitySum
             totalRuns += batchResults.total
             iterationsCompleted += currentBatchSize
+            batchIndex += 1
 
             // Check for convergence after each batch (but only after minimum samples)
             if totalRuns >= 50_000 {
@@ -150,11 +181,12 @@ class MonteCarloEngine {
             deadCards: Set<Card>,
             iterations: Int,
             coreIndex: Int,
-            opponentRange: OpponentRange.RangeType
+            opponentRange: OpponentRange.RangeType,
+            seed: UInt64
         ) -> SimulationResult {
-            // Create resources locally - avoids GCD deadlock with Swift concurrency
-            // The slight allocation overhead is worth avoiding deadlock
-            var rng = SystemRandomNumberGenerator()
+            // Each worker gets its own stream derived from the batch seed, so the
+            // whole run is reproducible while the workers stay independent.
+            var rng = SplitMix64(seed: seed &+ UInt64(coreIndex) &* 0x9E3779B97F4A7C15)
 
             // Build used-card index set using rank+suit (not UUID) for correct filtering.
             // Card.id is a random UUID, so UUID-based Set<Card> membership would always
@@ -276,7 +308,8 @@ class MonteCarloEngine {
         opponents: Int,
         deadCards: Set<Card>,
         iterations: Int,
-        opponentRange: OpponentRange.RangeType
+        opponentRange: OpponentRange.RangeType,
+        seed: UInt64?
     ) async -> Double {
         // Report single core usage
         PerformanceMonitor.shared.reportActiveCores(1)
@@ -287,7 +320,8 @@ class MonteCarloEngine {
             deadCards: deadCards,
             iterations: iterations,
             coreIndex: 0,
-            opponentRange: opponentRange
+            opponentRange: opponentRange,
+            seed: seed ?? UInt64.random(in: UInt64.min...UInt64.max)
         )
 
         guard result.total > 0 else { return 0.0 }

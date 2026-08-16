@@ -9,6 +9,14 @@ class GameState: ObservableObject {
     @Published var position: String = "BTN"  // Track position for solver
     @Published var opponentStyle: OpponentStyle = .unknown
 
+    /// How many players are still contesting this pot, hero included.
+    /// Distinct from the table size in Settings: by the river most seats have folded,
+    /// and pricing a heads-up decision against eight live opponents is badly wrong.
+    @Published var playersInHand: Int = 6
+
+    /// Opponents hero is actually up against right now.
+    var opponentCount: Int { max(1, playersInHand - 1) }
+
     @Published var potSize: Double = 0 {
         willSet {
             objectWillChange.send()
@@ -55,13 +63,19 @@ class GameState: ObservableObject {
         position == "BTN" || position == "CO"
     }
     
-    func reset() {
+    /// Start a fresh hand. The pot goes back to the posted blinds: carrying the last
+    /// hand's pot forward leaves a huge pot beside a one-blind call, which prices
+    /// almost any two cards as a profitable call.
+    func reset(smallBlind: Double = 0.5, bigBlind: Double = 1.0, playersInHand: Int = 6) {
         holeCards = [nil, nil]
         communityCards = [nil, nil, nil, nil, nil]
         deadCards = []
         position = "BTN"
         opponentStyle = .unknown
-        // Don't reset pot size and toCall - keep them for next hand
+        self.bigBlind = bigBlind
+        self.playersInHand = max(2, playersInHand)
+        potSize = smallBlind + bigBlind
+        toCall = bigBlind          // the button owes the big blind to enter
     }
     
     // Add methods to update pot values
@@ -86,6 +100,10 @@ struct GameStateCopy: Sendable {
     let toCall: Double
     let bigBlind: Double
     let opponentStyle: OpponentStyle
+    let playersInHand: Int
+
+    /// Opponents hero is actually up against right now.
+    var opponentCount: Int { max(1, playersInHand - 1) }
 
     init(from gameState: GameState) {
         self.holeCards = gameState.holeCards
@@ -97,6 +115,7 @@ struct GameStateCopy: Sendable {
         self.toCall = gameState.toCall
         self.bigBlind = gameState.bigBlind
         self.opponentStyle = gameState.opponentStyle
+        self.playersInHand = gameState.playersInHand
     }
 
     var currentStreet: Street {

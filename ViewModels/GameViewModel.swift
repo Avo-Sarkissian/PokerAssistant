@@ -84,12 +84,30 @@ class GameViewModel: ObservableObject {
         return ""
     }
     
-    private func getCurrentStateString() -> String {
+    /// Every input the calculation reads must appear here. When one is missing the app
+    /// decides nothing has changed, refuses to recompute, and keeps showing an answer
+    /// derived from different inputs.
+    func getCurrentStateString() -> String {
         let holeCards = gameState.holeCards.compactMap { $0?.displayString }.joined()
         let communityCards = gameState.communityCards.compactMap { $0?.displayString }.joined()
         let deadCards = gameState.deadCards.map { $0.displayString }.sorted().joined()
-        let opponents = settings?.numberOfOpponents ?? 5
-        return "\(holeCards)-\(communityCards)-\(deadCards)-\(gameState.potSize)-\(gameState.toCall)-\(opponents)-\(gameState.position)"
+
+        let fields: [String] = [
+            holeCards,
+            communityCards,
+            deadCards,
+            "\(gameState.potSize)",
+            "\(gameState.toCall)",
+            "\(gameState.stack)",
+            "\(gameState.bigBlind)",
+            "\(gameState.playersInHand)",
+            gameState.position,
+            gameState.opponentStyle.rawValue,
+            settings?.gameMode.rawValue ?? "",
+            settings?.tournamentPhase.rawValue ?? "",
+            settings?.calculationDepth.rawValue ?? ""
+        ]
+        return fields.joined(separator: "-")
     }
     
     func calculate() async {
@@ -100,6 +118,9 @@ class GameViewModel: ObservableObject {
 
         // Cancel any existing calculation
         calculationTask?.cancel()
+
+        // The solver reads the blind level off GameState; Settings is the source of truth.
+        gameState.bigBlind = settingsToUse.bigBlind
 
         isCalculating = true
         calculationResult = nil
@@ -169,8 +190,12 @@ class GameViewModel: ObservableObject {
         // Cancel any ongoing calculation
         calculationTask?.cancel()
 
-        // Reset all state
-        gameState.reset()
+        // Reset all state, seeding the pot from the configured blinds
+        gameState.reset(
+            smallBlind: settings?.smallBlind ?? 0.5,
+            bigBlind: settings?.bigBlind ?? 1.0,
+            playersInHand: settings?.numberOfPlayers ?? 6
+        )
         calculationResult = nil
         progressUpdate = nil
         stageTimings = [:]
