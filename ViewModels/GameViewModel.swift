@@ -99,6 +99,7 @@ class GameViewModel: ObservableObject {
             "\(gameState.potSize)",
             "\(gameState.toCall)",
             "\(gameState.stack)",
+            "\(gameState.villainStack)",
             "\(gameState.bigBlind)",
             "\(gameState.playersInHand)",
             gameState.position,

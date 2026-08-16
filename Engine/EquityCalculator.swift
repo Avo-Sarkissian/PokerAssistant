@@ -83,10 +83,20 @@ class EquityCalculator {
         // GPU Monte Carlo (fast approximation for everything else):
         //   Flop (any), Turn 2+ opp, River 3+ opp, Preflop (with range filtering)
 
+        // Postflop the inferred range is NOT applied. `OpponentRange` is a preflop
+        // starting-hand chart with no continuation model, so filtering a postflop
+        // showdown by it keeps the broadway hands that would have folded the flop and
+        // deletes the connected hands that actually bet. Measured on 3c3d / 8s7h6d2c4h,
+        // that inverts the relationship: hero reads 35.4% against a random hand and
+        // 68.4% against a "tight" one, so a bigger villain bet raises hero's equity.
+        // The enumerators support ranges (see ExactEnumerator); only the routing is
+        // gated, until there is a board-conditioned continuation model.
+        let postflopRange: OpponentRange.RangeType = .random
+
         switch hand.street {
 
         case .river:
-            if let equity = exact.calculateRiver(hand: hand, opponents: opponents, deadCards: deadCards, opponentRange: opponentRange) {
+            if let equity = exact.calculateRiver(hand: hand, opponents: opponents, deadCards: deadCards, opponentRange: postflopRange) {
                 let method = opponents == 1 ? "Exact river" : "Exact river 2-opp"
                 PerformanceMonitor.shared.reportCalcInfo("\(method) → \(String(format: "%.1f", equity * 100))%")
                 return equity
@@ -94,7 +104,7 @@ class EquityCalculator {
             // 3+ opponents: fall through to GPU MC
 
         case .turn:
-            if let equity = exact.calculateTurn(hand: hand, opponents: opponents, deadCards: deadCards, opponentRange: opponentRange) {
+            if let equity = exact.calculateTurn(hand: hand, opponents: opponents, deadCards: deadCards, opponentRange: postflopRange) {
                 PerformanceMonitor.shared.reportCalcInfo("Exact turn → \(String(format: "%.1f", equity * 100))%")
                 return equity
             }
@@ -102,7 +112,7 @@ class EquityCalculator {
 
         case .flop:
             // Exact flop enumeration for 1-opp heads-up (~300–500 ms, provably correct)
-            if let equity = exact.calculateFlop(hand: hand, opponents: opponents, deadCards: deadCards, opponentRange: opponentRange) {
+            if let equity = exact.calculateFlop(hand: hand, opponents: opponents, deadCards: deadCards, opponentRange: postflopRange) {
                 PerformanceMonitor.shared.reportCalcInfo("Exact flop → \(String(format: "%.1f", equity * 100))%")
                 return equity
             }

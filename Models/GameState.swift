@@ -5,7 +5,14 @@ class GameState: ObservableObject {
     @Published var holeCards: [Card?] = [nil, nil]
     @Published var communityCards: [Card?] = [nil, nil, nil, nil, nil]
     @Published var deadCards: Set<Card> = []
-    @Published var stack: Double = 20
+    @Published var stack: Double = 20 {
+        didSet {
+            // There is no separate control for villain's stack yet, so keep it in step
+            // with hero's. Without this the default 20 pinned the effective stack and
+            // silently disabled every raise once the user edited their own stack.
+            if villainStack == oldValue { villainStack = stack }
+        }
+    }
 
     /// The largest stack hero can actually be called by. Commitment decisions turn on
     /// the effective stack, not hero's own — and fold equity does not exist against a
