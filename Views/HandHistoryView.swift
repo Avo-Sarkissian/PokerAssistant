@@ -6,7 +6,7 @@ struct HandHistoryView: View {
     @State private var showingClearConfirm = false
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             Group {
                 if gameViewModel.allSessions.isEmpty {
                     emptyState

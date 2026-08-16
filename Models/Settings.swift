@@ -79,6 +79,9 @@ class Settings: ObservableObject {
     @AppStorage("bigBlind") var bigBlind: Double = 1.0
     @AppStorage("numberOfPlayers") var numberOfPlayers: Int = 6
     @AppStorage("trackOpponents") var trackOpponents: Bool = false
+    /// The app used to force dark mode app-wide, overriding the system setting with no
+    /// way to opt out. Default stays dark; the user can now follow the system instead.
+    @AppStorage("forceDarkMode") var forceDarkMode: Bool = true
     @AppStorage("showMathDetails") var showMathDetails: Bool = false
     @AppStorage("simpleExplanations") var simpleExplanations: Bool = true
     @AppStorage("progressiveResults") var progressiveResults: Bool = true

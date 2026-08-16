@@ -8,7 +8,7 @@ struct ContentView: View {
     @State private var showHistory = false
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             MainGameView()
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {

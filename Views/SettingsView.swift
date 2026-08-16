@@ -5,7 +5,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) var dismiss
     
     var body: some View {
-        NavigationView {
+        NavigationStack {
             Form {
                 Section("Game Setup") {
                     HStack {

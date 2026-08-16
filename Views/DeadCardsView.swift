@@ -6,7 +6,7 @@ struct DeadCardsView: View {
     @State private var showingCardSelector = false
     
     var body: some View {
-        NavigationView {
+        NavigationStack {
             VStack {
                 Text("CARDS TO REMOVE")
                     .font(.headline)

@@ -10,7 +10,7 @@ struct PokerAssistantApp: App {
             ContentView()
                 .environmentObject(gameViewModel)
                 .environmentObject(settings)
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(settings.forceDarkMode ? .dark : nil)
                 .task {
                     // Connect settings after view appears
                     gameViewModel.settings = settings
