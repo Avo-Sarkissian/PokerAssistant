@@ -20,35 +20,56 @@ final class ExactEnumerator {
     // MARK: – Public API
 
     /// Exact river equity (1 or 2 opponents). Returns nil if unsupported case.
-    func calculateRiver(hand: Hand, opponents: Int, deadCards: Set<Card>) -> Double? {
+    func calculateRiver(hand: Hand, opponents: Int, deadCards: Set<Card>,
+                        opponentRange: OpponentRange.RangeType = .random) -> Double? {
         guard hand.communityCards.count == 5 else { return nil }
         let available = buildAvailable(hand: hand, deadCards: deadCards)
         switch opponents {
-        case 1: return riverOneOpponent(hand: hand, available: available)
-        case 2: return riverTwoOpponents(hand: hand, available: available)
+        case 1: return riverOneOpponent(hand: hand, available: available, range: opponentRange)
+        case 2: return riverTwoOpponents(hand: hand, available: available, range: opponentRange)
         default: return nil
         }
     }
 
     /// Exact turn equity (1 opponent only). Returns nil if unsupported.
-    func calculateTurn(hand: Hand, opponents: Int, deadCards: Set<Card>) -> Double? {
+    func calculateTurn(hand: Hand, opponents: Int, deadCards: Set<Card>,
+                       opponentRange: OpponentRange.RangeType = .random) -> Double? {
         guard hand.communityCards.count == 4, opponents == 1 else { return nil }
         let available = buildAvailable(hand: hand, deadCards: deadCards)
-        return turnOneOpponent(hand: hand, available: available)
+        return turnOneOpponent(hand: hand, available: available, range: opponentRange)
     }
 
     /// Exact flop equity (1 opponent only).
     /// Enumerates every (turn, river) pair × every opponent hand.
     /// ~46×45/2 × 44×43/2 ≈ 1.07M evaluations — typically ~300 ms.
-    func calculateFlop(hand: Hand, opponents: Int, deadCards: Set<Card>) -> Double? {
+    func calculateFlop(hand: Hand, opponents: Int, deadCards: Set<Card>,
+                       opponentRange: OpponentRange.RangeType = .random) -> Double? {
         guard hand.communityCards.count == 3, opponents == 1 else { return nil }
         let available = buildAvailable(hand: hand, deadCards: deadCards)
-        return flopOneOpponent(hand: hand, available: available)
+        return flopOneOpponent(hand: hand, available: available, range: opponentRange)
+    }
+
+    /// Precomputes which (i, j) pairs of the available deck are hands villain would
+    /// hold, so the inner loops do one array lookup instead of re-deriving the hand
+    /// class. Returns nil when no filtering is needed.
+    private func inRangeMask(_ available: [Card], _ range: OpponentRange.RangeType) -> [Bool]? {
+        guard range != .random else { return nil }
+        let n = available.count
+        var mask = [Bool](repeating: false, count: n * n)
+        for i in 0..<n {
+            for j in (i + 1)..<n {
+                if OpponentRange.isHandInRange(available[i], available[j], range: range) {
+                    mask[i * n + j] = true
+                }
+            }
+        }
+        return mask
     }
 
     // MARK: – River: 1 opponent
 
-    private func riverOneOpponent(hand: Hand, available: [Card]) -> Double {
+    private func riverOneOpponent(hand: Hand, available: [Card],
+                                  range: OpponentRange.RangeType) -> Double? {
         let board = hand.communityCards  // 5 cards
         let n     = available.count      // typically ~45
 
@@ -60,12 +81,14 @@ final class ExactEnumerator {
         var oppHand = Array(repeating: available[0], count: 7)
         for i in 0..<5 { oppHand[i + 2] = board[i] }
 
+        let mask = inRangeMask(available, range)
         var equitySum = 0.0
         var total     = 0
 
         for i in 0..<(n - 1) {
             oppHand[0] = available[i]
             for j in (i + 1)..<n {
+                if let mask, !mask[i * n + j] { continue }
                 oppHand[1] = available[j]
                 let oppScore = evaluator.evaluate(oppHand)
                 if      myScore > oppScore { equitySum += 1.0 }
@@ -74,16 +97,19 @@ final class ExactEnumerator {
             }
         }
 
-        // Suppress "variable written but never read" warning
         _ = myHand
-        return total > 0 ? equitySum / Double(total) : 0.0
+        // No hand in the assumed range survives the board: fall back rather than
+        // reporting a number derived from nothing.
+        guard total > 0 else { return nil }
+        return equitySum / Double(total)
     }
 
     // MARK: – River: 2 opponents
 
     // Enumerates C(n,4) groups of 4 cards and splits each 3 ways.
     // Total combos: C(45,4) × 3 ≈ 447K. Exact equity, no approximation.
-    private func riverTwoOpponents(hand: Hand, available: [Card]) -> Double {
+    private func riverTwoOpponents(hand: Hand, available: [Card],
+                                   range: OpponentRange.RangeType) -> Double? {
         let board = hand.communityCards
         let n     = available.count
 
@@ -95,6 +121,13 @@ final class ExactEnumerator {
         var opp2 = Array(repeating: available[0], count: 7)
         for i in 0..<5 { opp1[i + 2] = board[i]; opp2[i + 2] = board[i] }
 
+        let mask = inRangeMask(available, range)
+        // Both opponents must hold a hand from the assumed range.
+        func pairAllowed(_ x: Int, _ y: Int) -> Bool {
+            guard let mask else { return true }
+            return mask[min(x, y) * n + max(x, y)]
+        }
+
         var equitySum = 0.0
         var total     = 0
 
@@ -104,29 +137,36 @@ final class ExactEnumerator {
                     for d in (c + 1)..<n {
                         // 3 ways to split {a,b,c,d} into 2 pairs:
                         // Split 1: (a,b) vs (c,d)
-                        opp1[0] = available[a]; opp1[1] = available[b]
-                        opp2[0] = available[c]; opp2[1] = available[d]
-                        accumulateEquity(myScore: myScore, opp1: &opp1, opp2: &opp2,
-                                         equitySum: &equitySum, total: &total)
+                        if pairAllowed(a, b) && pairAllowed(c, d) {
+                            opp1[0] = available[a]; opp1[1] = available[b]
+                            opp2[0] = available[c]; opp2[1] = available[d]
+                            accumulateEquity(myScore: myScore, opp1: &opp1, opp2: &opp2,
+                                             equitySum: &equitySum, total: &total)
+                        }
 
                         // Split 2: (a,c) vs (b,d)
-                        opp1[0] = available[a]; opp1[1] = available[c]
-                        opp2[0] = available[b]; opp2[1] = available[d]
-                        accumulateEquity(myScore: myScore, opp1: &opp1, opp2: &opp2,
-                                         equitySum: &equitySum, total: &total)
+                        if pairAllowed(a, c) && pairAllowed(b, d) {
+                            opp1[0] = available[a]; opp1[1] = available[c]
+                            opp2[0] = available[b]; opp2[1] = available[d]
+                            accumulateEquity(myScore: myScore, opp1: &opp1, opp2: &opp2,
+                                             equitySum: &equitySum, total: &total)
+                        }
 
                         // Split 3: (a,d) vs (b,c)
-                        opp1[0] = available[a]; opp1[1] = available[d]
-                        opp2[0] = available[b]; opp2[1] = available[c]
-                        accumulateEquity(myScore: myScore, opp1: &opp1, opp2: &opp2,
-                                         equitySum: &equitySum, total: &total)
+                        if pairAllowed(a, d) && pairAllowed(b, c) {
+                            opp1[0] = available[a]; opp1[1] = available[d]
+                            opp2[0] = available[b]; opp2[1] = available[c]
+                            accumulateEquity(myScore: myScore, opp1: &opp1, opp2: &opp2,
+                                             equitySum: &equitySum, total: &total)
+                        }
                     }
                 }
             }
         }
 
         _ = myHand
-        return total > 0 ? equitySum / Double(total) : 0.0
+        guard total > 0 else { return nil }
+        return equitySum / Double(total)
     }
 
     @inline(__always)
@@ -155,7 +195,8 @@ final class ExactEnumerator {
     // For each river card, my score is recomputed (1 eval) then all opponent
     // combos are enumerated (C(remaining, 2) evals).
     // Total: ~46 × 1,035 ≈ 47K evaluations. Sub-100ms.
-    private func turnOneOpponent(hand: Hand, available: [Card]) -> Double {
+    private func turnOneOpponent(hand: Hand, available: [Card],
+                                 range: OpponentRange.RangeType) -> Double? {
         let board = hand.communityCards  // 4 cards
         let n     = available.count      // typically ~46
 
@@ -166,6 +207,7 @@ final class ExactEnumerator {
         var oppHand = Array(repeating: available[0], count: 7)
         for i in 0..<4 { oppHand[i + 2] = board[i] }
 
+        let mask = inRangeMask(available, range)
         var equitySum = 0.0
         var total     = 0
 
@@ -183,6 +225,7 @@ final class ExactEnumerator {
                 oppHand[0] = available[i]
                 for j in (i + 1)..<n {
                     if j == ri { continue }
+                    if let mask, !mask[i * n + j] { continue }
                     oppHand[1] = available[j]
                     let oppScore = evaluator.evaluate(oppHand)
                     if      myScore > oppScore  { equitySum += 1.0 }
@@ -192,7 +235,8 @@ final class ExactEnumerator {
             }
         }
 
-        return total > 0 ? equitySum / Double(total) : 0.0
+        guard total > 0 else { return nil }
+        return equitySum / Double(total)
     }
 
     // MARK: – Flop: 1 opponent
@@ -201,7 +245,8 @@ final class ExactEnumerator {
     // Inner loop: every opponent hand from remaining cards (excludes turn & river).
     // Total: C(n,2) × C(n-2,2) ≈ C(45,2)×C(43,2) ≈ 990 × 903 ≈ 894K evaluations.
     // Sub-500ms on device.
-    private func flopOneOpponent(hand: Hand, available: [Card]) -> Double {
+    private func flopOneOpponent(hand: Hand, available: [Card],
+                                 range: OpponentRange.RangeType) -> Double? {
         let board3 = hand.communityCards  // 3 flop cards
         let n      = available.count      // typically ~45
 
@@ -210,6 +255,7 @@ final class ExactEnumerator {
         for i in 0..<3 { oppHand[i + 2] = board3[i] }
         // oppHand[5] = turn, oppHand[6] = river — filled in loop
 
+        let mask = inRangeMask(available, range)
         var equitySum = 0.0
         var total     = 0
 
@@ -231,6 +277,7 @@ final class ExactEnumerator {
                     oppHand[0] = available[i]
                     for j in (i + 1)..<n {
                         if j == ti || j == ri { continue }
+                        if let mask, !mask[i * n + j] { continue }
                         oppHand[1] = available[j]
                         let oppScore = evaluator.evaluate(oppHand)
                         if      myScore > oppScore  { equitySum += 1.0 }
@@ -241,7 +288,8 @@ final class ExactEnumerator {
             }
         }
 
-        return total > 0 ? equitySum / Double(total) : 0.0
+        guard total > 0 else { return nil }
+        return equitySum / Double(total)
     }
 
     // MARK: – Helpers

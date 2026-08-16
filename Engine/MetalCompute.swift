@@ -9,9 +9,6 @@ class MetalCompute {
     private var pipelineSetupComplete = false
     private let pipelineLock = NSLock()
 
-    // For debug output
-    static var lastDebugInfo: String = "No GPU run yet"
-
     // Constants
     private let threadsPerThreadgroup = 256
     private let iterationsPerThread = 1000
@@ -19,14 +16,12 @@ class MetalCompute {
     init?() {
         guard let device = MTLCreateSystemDefaultDevice(),
               let commandQueue = device.makeCommandQueue() else {
-            MetalCompute.lastDebugInfo = "Metal not supported"
             return nil
         }
 
         self.device = device
         self.commandQueue = commandQueue
 
-        MetalCompute.lastDebugInfo = "GPU: \(device.name)"
 
         // Start shader compilation in background immediately
         // This way it's ready by the time user presses Calculate
@@ -57,7 +52,6 @@ class MetalCompute {
         // Try to acquire lock without blocking
         guard pipelineLock.try() else {
             // Lock is held by shader compilation thread - not ready
-            MetalCompute.lastDebugInfo = "GPU: Shader compiling..."
             return false
         }
         defer { pipelineLock.unlock() }
@@ -73,18 +67,14 @@ class MetalCompute {
         do {
             // Get the default library which contains pre-compiled .metal shaders
             guard let library = device.makeDefaultLibrary() else {
-                MetalCompute.lastDebugInfo += " | No default library"
                 return
             }
 
             if let function = library.makeFunction(name: "monteCarloPoker") {
                 computePipeline = try device.makeComputePipelineState(function: function)
-                MetalCompute.lastDebugInfo += " | Pipeline OK (precompiled)"
             } else {
-                MetalCompute.lastDebugInfo += " | Function not found"
             }
         } catch {
-            MetalCompute.lastDebugInfo += " | Error: \(error.localizedDescription)"
         }
     }
     
@@ -108,7 +98,6 @@ class MetalCompute {
             length: MemoryLayout<ThreadResult>.stride * totalThreads,
             options: .storageModeShared
         ) else {
-            MetalCompute.lastDebugInfo = "Results buffer failed"
             return nil
         }
 
@@ -117,7 +106,6 @@ class MetalCompute {
             length: MemoryLayout<UInt32>.size * totalThreads,
             options: .storageModeShared
         ) else {
-            MetalCompute.lastDebugInfo = "Random buffer failed"
             return nil
         }
 
@@ -139,13 +127,11 @@ class MetalCompute {
             length: MemoryLayout<SimulationParams>.size,
             options: .storageModeShared
         ) else {
-            MetalCompute.lastDebugInfo = "Params buffer failed"
             return nil
         }
 
         guard let commandBuffer = commandQueue.makeCommandBuffer(),
               let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            MetalCompute.lastDebugInfo = "Command buffer failed"
             return nil
         }
 
@@ -162,7 +148,6 @@ class MetalCompute {
         )
         encoder.endEncoding()
 
-        MetalCompute.lastDebugInfo = "Threads: \(totalThreads), Groups: \(threadgroupsPerGrid)"
 
         // Use timeout to prevent GPU hangs from freezing the app
         return await withGPUTimeout(commandBuffer: commandBuffer, resultsBuffer: resultsBuffer, totalThreads: totalThreads)
@@ -184,7 +169,6 @@ class MetalCompute {
                 await withCheckedContinuation { continuation in
                     commandBuffer.addCompletedHandler { [resultsBuffer, totalThreads] buffer in
                         if let error = buffer.error {
-                            MetalCompute.lastDebugInfo = "GPU Error: \(error.localizedDescription)"
                             continuation.resume(returning: nil)
                             return
                         }
@@ -200,7 +184,6 @@ class MetalCompute {
                             totalSims += UInt64(resultsPtr[i].total)
                         }
 
-                        MetalCompute.lastDebugInfo = "E:\(totalUnits) N:\(totalSims)"
 
                         if totalSims > 0 {
                             let equity = Double(totalUnits) / (equityUnitScale * Double(totalSims))
@@ -226,8 +209,6 @@ class MetalCompute {
             if let result = first, result != nil {
                 return result
             }
-
-            MetalCompute.lastDebugInfo = "GPU timeout after \(timeoutSeconds)s"
             return nil
         }
     }

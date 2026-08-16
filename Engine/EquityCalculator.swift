@@ -86,7 +86,7 @@ class EquityCalculator {
         switch hand.street {
 
         case .river:
-            if let equity = exact.calculateRiver(hand: hand, opponents: opponents, deadCards: deadCards) {
+            if let equity = exact.calculateRiver(hand: hand, opponents: opponents, deadCards: deadCards, opponentRange: opponentRange) {
                 let method = opponents == 1 ? "Exact river" : "Exact river 2-opp"
                 PerformanceMonitor.shared.reportCalcInfo("\(method) → \(String(format: "%.1f", equity * 100))%")
                 return equity
@@ -94,7 +94,7 @@ class EquityCalculator {
             // 3+ opponents: fall through to GPU MC
 
         case .turn:
-            if let equity = exact.calculateTurn(hand: hand, opponents: opponents, deadCards: deadCards) {
+            if let equity = exact.calculateTurn(hand: hand, opponents: opponents, deadCards: deadCards, opponentRange: opponentRange) {
                 PerformanceMonitor.shared.reportCalcInfo("Exact turn → \(String(format: "%.1f", equity * 100))%")
                 return equity
             }
@@ -102,7 +102,7 @@ class EquityCalculator {
 
         case .flop:
             // Exact flop enumeration for 1-opp heads-up (~300–500 ms, provably correct)
-            if let equity = exact.calculateFlop(hand: hand, opponents: opponents, deadCards: deadCards) {
+            if let equity = exact.calculateFlop(hand: hand, opponents: opponents, deadCards: deadCards, opponentRange: opponentRange) {
                 PerformanceMonitor.shared.reportCalcInfo("Exact flop → \(String(format: "%.1f", equity * 100))%")
                 return equity
             }
