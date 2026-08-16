@@ -28,7 +28,11 @@ class CalculationViewModel: ObservableObject {
         if gameState.opponentStyle != .unknown {
             opponentRange = gameState.opponentStyle.rangeType
         } else if gameState.toCall > 0 {
-            let potRelativeBet = gameState.toCall / max(gameState.potSize, 1.0)
+            // Measured against the pot villain bet INTO, not the pot their bet is
+            // already inside — the range thresholds are calibrated on "% of pot".
+            let entry = PotEntry(potBeforeBet: gameState.potSize - gameState.toCall,
+                                 toCall: gameState.toCall)
+            let potRelativeBet = entry.betFractionOfPotBeforeBet
             opponentRange = OpponentRange.rangeFromAction(
                 potRelativeBet: potRelativeBet,
                 street: gameState.currentStreet,

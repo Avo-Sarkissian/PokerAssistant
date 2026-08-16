@@ -173,27 +173,25 @@ struct MainGameView: View {
         if gameViewModel.gameState.playersInHand > settings.numberOfPlayers {
             gameViewModel.gameState.playersInHand = settings.numberOfPlayers
         }
-        updateForPosition(selectedPosition)
+        // Only seed the blinds when nothing has been entered for this hand yet.
+        if gameViewModel.gameState.potSize <= blindsTotal {
+            updateForPosition(selectedPosition)
+        } else {
+            gameViewModel.gameState.position = selectedPosition
+        }
     }
     
     private func updateForPosition(_ pos: String) {
-        // Only auto-set toCall pre-flop
+        // Preflop, changing seat changes what hero owes. Write the whole spot rather
+        // than toCall alone: the pot and the bet have to stay consistent or the
+        // derived "pot before their bet" silently absorbs the difference.
         if !isPostFlop {
-            switch pos {
-            case "BB":
-                // Big Blind: You've posted full BB, can check if no raise
-                gameViewModel.gameState.toCall = 0
-            case "SB":
-                // Small Blind: You've posted half, need to complete
-                gameViewModel.gameState.toCall = settings.smallBlind
-            case "BTN":
-                // Button: Must pay full BB to enter
-                gameViewModel.gameState.toCall = settings.bigBlind
-            default:
-                gameViewModel.gameState.toCall = settings.bigBlind
-            }
+            let entry = PotEntry.blindsOnly(heroPosition: pos,
+                                            smallBlind: settings.smallBlind,
+                                            bigBlind: settings.bigBlind)
+            gameViewModel.gameState.potSize = entry.totalPot
+            gameViewModel.gameState.toCall = entry.toCall
         }
-        // Update position in game state for solver
         gameViewModel.gameState.position = pos
     }
     

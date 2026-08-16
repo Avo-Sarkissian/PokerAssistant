@@ -64,6 +64,25 @@ struct PotEntry: Equatable {
         return toCall / (totalPot + toCall)
     }
 
+    /// Villain's bet as a fraction of the pot they bet into — the "he bet 75% pot"
+    /// number. Range inference is calibrated against this, NOT against the bet as a
+    /// share of the pot it is already inside.
+    var betFractionOfPotBeforeBet: Double {
+        guard potBeforeBet > 0 else { return 0 }
+        return toCall / potBeforeBet
+    }
+
+    /// The spot before anyone has acted: just the posted blinds.
+    static func blindsOnly(heroPosition: String, smallBlind: Double, bigBlind: Double) -> PotEntry {
+        let owed: Double
+        switch heroPosition {
+        case "BB": owed = 0                    // already posted the full blind
+        case "SB": owed = bigBlind - smallBlind // completing
+        default:   owed = bigBlind
+        }
+        return PotEntry(potBeforeBet: (smallBlind + bigBlind) - owed, toCall: owed)
+    }
+
     /// Pot odds expressed the way they are spoken at a table, e.g. 3.2 for "3.2 to 1".
     var potOddsRatio: Double? {
         guard toCall > 0 else { return nil }

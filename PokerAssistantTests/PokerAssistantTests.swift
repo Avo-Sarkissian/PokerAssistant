@@ -209,7 +209,10 @@ struct PreflopEquityTests {
         func equity(range: OpponentRange.RangeType) async -> Double {
             await engine.simulate(
                 hand: Hand(holeCards: cards("Kd Jc"), communityCards: []),
-                opponents: 1,
+                // Three opponents, not one. With a single opponent, dropping an
+                // out-of-range player and re-dealing them are statistically
+                // equivalent, so this test passed against the very bug it guards.
+                opponents: 3,
                 deadCards: [],
                 iterations: 300_000,
                 opponentRange: range,
@@ -308,5 +311,36 @@ struct GPUConsistencyTests {
 
         #expect(abs(gpu - exact) < 0.005,
                 "GPU \(gpu) vs exact \(exact) — delta \(abs(gpu - exact))")
+    }
+
+    /// On a board nobody can beat, every showdown is an n-way chop, so the answer is
+    /// entirely determined by how the engine splits a tied pot. Crediting a flat half
+    /// makes hero's share look like 50% however many players are in.
+    @Test("GPU splits multiway chops by how many players share the pot")
+    func gpuSplitsMultiwayChops() async throws {
+        // Broadway straight on board, unpaired, no flush possible: unbeatable.
+        let river = Hand(holeCards: cards("2c 3d"), communityCards: cards("As Ks Qh Jd Th"))
+
+        guard let metal = MetalCompute() else {
+            Issue.record("No Metal device available on this host")
+            return
+        }
+
+        var gpuEquity: Double? = nil
+        for _ in 0..<60 {
+            gpuEquity = await metal.simulateGPU(hand: river, opponents: 2,
+                                                deadCards: [], iterations: 1_000_000)
+            if gpuEquity != nil { break }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+
+        let gpu = try #require(gpuEquity, "GPU never became ready")
+        let exact = try #require(ExactEnumerator().calculateRiver(hand: river, opponents: 2,
+                                                                 deadCards: []))
+
+        // Three players, one pot: a third each.
+        #expect(abs(exact - 1.0 / 3.0) < 1e-9, "enumerator gave \(exact)")
+        #expect(abs(gpu - exact) < 0.005,
+                "GPU \(gpu) vs exact \(exact) — a flat half-pot credit gives 0.5")
     }
 }

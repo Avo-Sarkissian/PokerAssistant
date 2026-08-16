@@ -192,21 +192,18 @@ class MetalCompute {
                         // Sum up all thread results
                         let resultsPtr = resultsBuffer.contents().bindMemory(to: ThreadResult.self, capacity: totalThreads)
 
-                        var totalWins: UInt64 = 0
-                        var totalTies: UInt64 = 0
+                        var totalUnits: UInt64 = 0
                         var totalSims: UInt64 = 0
 
                         for i in 0..<totalThreads {
-                            totalWins += UInt64(resultsPtr[i].wins)
-                            totalTies += UInt64(resultsPtr[i].ties)
+                            totalUnits += UInt64(resultsPtr[i].equityUnits)
                             totalSims += UInt64(resultsPtr[i].total)
                         }
 
-                        MetalCompute.lastDebugInfo = "W:\(totalWins) T:\(totalTies) N:\(totalSims)"
+                        MetalCompute.lastDebugInfo = "E:\(totalUnits) N:\(totalSims)"
 
                         if totalSims > 0 {
-                            let equity = Double(totalWins) / Double(totalSims) +
-                                        (Double(totalTies) / Double(totalSims) * 0.5)
+                            let equity = Double(totalUnits) / (equityUnitScale * Double(totalSims))
                             continuation.resume(returning: min(1.0, max(0.0, equity)))
                         } else {
                             continuation.resume(returning: nil)
@@ -237,11 +234,15 @@ class MetalCompute {
 }
 
 // Must match Metal struct exactly
+/// Must match the Metal struct exactly. Equity arrives as integer units of
+/// `equityUnitScale` so chopped pots divide exactly on the GPU.
 private struct ThreadResult {
-    var wins: UInt32 = 0
-    var ties: UInt32 = 0
+    var equityUnits: UInt32 = 0
     var total: UInt32 = 0
 }
+
+/// LCM(1...10) — matches EQUITY_UNIT in PokerShaders.metal.
+private let equityUnitScale: Double = 2520
 
 private struct SimulationParams {
     var iterations: UInt32

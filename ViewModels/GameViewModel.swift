@@ -103,6 +103,8 @@ class GameViewModel: ObservableObject {
             "\(gameState.playersInHand)",
             gameState.position,
             gameState.opponentStyle.rawValue,
+            "\(settings?.smallBlind ?? 0)",
+            "\(settings?.bigBlind ?? 0)",
             settings?.gameMode.rawValue ?? "",
             settings?.tournamentPhase.rawValue ?? "",
             settings?.calculationDepth.rawValue ?? ""

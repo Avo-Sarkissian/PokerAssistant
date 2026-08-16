@@ -18,7 +18,7 @@ final class PreflopEquityTable {
     /// Bump this whenever the evaluator, the sampler, or the range model changes.
     /// Cached equities are permanent otherwise, so a corrected engine would never
     /// reach anyone who had already opened the app.
-    private static let schemaVersion = 2
+    private static let schemaVersion = 3
     private let prefix = "PreflopEq_v\(PreflopEquityTable.schemaVersion)_"
 
     // In-memory cache so repeated same-session lookups skip UserDefaults entirely
@@ -85,7 +85,7 @@ final class PreflopEquityTable {
         // Sort high-card first
         let (high, low) = c1.rank.rawValue >= c2.rank.rawValue ? (c1, c2) : (c2, c1)
         let suited = high.suit == low.suit ? "s" : "o"
-        let handKey = "\(high.rank.symbol)\(low.rank.symbol)\(suited)"
+        let handKey = "\(high.rank.tableSymbol)\(low.rank.tableSymbol)\(suited)"
         return "\(handKey)_\(opponents)_\(range.cacheIdentifier)"
     }
 }

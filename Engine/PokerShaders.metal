@@ -20,10 +20,16 @@ struct SimulationParams {
     uint deadCards[52];
 };
 
-// Each thread writes to its own slot
+// Each thread writes to its own slot.
+//
+// Equity is accumulated in exact integer units rather than as wins and ties, because
+// a chopped pot is worth 1/(n+1) and a flat half-pot credit overstates hero's share
+// by up to 30 points when the board plays. EQUITY_UNIT is the least common multiple
+// of 1...10, so every split up to a ten-way chop divides exactly.
+#define EQUITY_UNIT 2520u
+
 struct ThreadResult {
-    uint wins;
-    uint ties;
+    uint equityUnits;
     uint total;
 };
 
@@ -138,7 +144,7 @@ kernel void monteCarloPoker(
         if (!isUsed[i]) availableCards[availableCount++] = i;
     }
 
-    uint wins = 0, ties = 0;
+    uint equityUnits = 0;
 
     // Pre-allocate shuffle array once outside loop
     uint shuffled[52];
@@ -180,8 +186,10 @@ kernel void monteCarloPoker(
 
         uint myValue = evaluateHand7(myHand);
 
-        // Evaluate opponents
+        // Evaluate opponents, tracking how many share the best hand so a chop can be
+        // split by the number of players actually in it.
         uint bestOppValue = 0;
+        uint tiedOpponents = 0;
         for (uint opp = 0; opp < params->opponents; opp++) {
             if (cardIndex + 1 >= availableCount) break;
 
@@ -191,15 +199,18 @@ kernel void monteCarloPoker(
             for (uint i = 0; i < 5; i++) oppHand[2 + i] = myHand[2 + i];
 
             uint oppValue = evaluateHand7(oppHand);
-            if (oppValue > bestOppValue) bestOppValue = oppValue;
+            if (oppValue > bestOppValue) { bestOppValue = oppValue; tiedOpponents = 1; }
+            else if (oppValue == bestOppValue) { tiedOpponents++; }
         }
 
-        if (myValue > bestOppValue) wins++;
-        else if (myValue == bestOppValue) ties++;
+        if (myValue > bestOppValue) {
+            equityUnits += EQUITY_UNIT;
+        } else if (myValue == bestOppValue) {
+            equityUnits += EQUITY_UNIT / (tiedOpponents + 1);
+        }
     }
 
     // Write to this thread's slot
-    results[gid].wins = wins;
-    results[gid].ties = ties;
+    results[gid].equityUnits = equityUnits;
     results[gid].total = 1000;
 }

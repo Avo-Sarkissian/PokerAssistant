@@ -56,6 +56,28 @@ struct ReproducibilityTests {
 
 // MARK: - Hand lifecycle
 
+/// `Settings` is backed by @AppStorage on the shared defaults and the test host is the
+/// app itself, so anything a test writes leaks into the real app unless it is restored.
+struct DefaultsSnapshot {
+    private static let keys = ["smallBlind", "bigBlind", "numberOfPlayers", "buyIn",
+                               "gameMode", "tournamentPhase", "calculationDepth"]
+    private let saved: [(String, Any?)]
+
+    init() {
+        saved = Self.keys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
+    }
+
+    func restore() {
+        for (key, value) in saved {
+            if let value {
+                UserDefaults.standard.set(value, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+    }
+}
+
 @Suite("Hand lifecycle")
 @MainActor
 struct HandLifecycleTests {
@@ -73,6 +95,9 @@ struct HandLifecycleTests {
     /// a one-blind call, which prices almost any two cards as a call.
     @Test("Starting a new hand resets the pot to the blinds")
     func resetRestoresBlindPot() {
+        let snapshot = DefaultsSnapshot()
+        defer { snapshot.restore() }
+
         let (viewModel, _) = makeViewModel(smallBlind: 0.5, bigBlind: 1.0)
         viewModel.gameState.potSize = 180
         viewModel.gameState.toCall = 1
@@ -87,6 +112,9 @@ struct HandLifecycleTests {
     /// computed from GameState, so the two have to agree.
     @Test("The blind level reaches the game state")
     func blindLevelPropagates() {
+        let snapshot = DefaultsSnapshot()
+        defer { snapshot.restore() }
+
         let (viewModel, _) = makeViewModel(smallBlind: 1.0, bigBlind: 2.0)
 
         viewModel.resetHand()
@@ -100,6 +128,9 @@ struct HandLifecycleTests {
     /// answer derived from different inputs.
     @Test("The recalculation fingerprint covers every input the solver reads")
     func fingerprintCoversAllInputs() {
+        let snapshot = DefaultsSnapshot()
+        defer { snapshot.restore() }
+
         let (viewModel, settings) = makeViewModel(smallBlind: 0.5, bigBlind: 1.0)
         viewModel.gameState.holeCards = [card("Ad"), card("Ac")]
         viewModel.gameState.potSize = 10
@@ -109,24 +140,32 @@ struct HandLifecycleTests {
 
         viewModel.gameState.opponentStyle = .tight
         #expect(viewModel.getCurrentStateString() != baseline, "opponent style is not in the fingerprint")
-
         viewModel.gameState.opponentStyle = .unknown
+
         viewModel.gameState.stack = 999
         #expect(viewModel.getCurrentStateString() != baseline, "stack is not in the fingerprint")
-
         viewModel.gameState.stack = 20
+
         viewModel.gameState.playersInHand = 2
         #expect(viewModel.getCurrentStateString() != baseline, "players in hand is not in the fingerprint")
-
         viewModel.gameState.playersInHand = 6
+
         settings.gameMode = .tournament
         #expect(viewModel.getCurrentStateString() != baseline, "game mode is not in the fingerprint")
-
         settings.gameMode = .cashGame
+
         settings.tournamentPhase = .bubble
         #expect(viewModel.getCurrentStateString() != baseline, "tournament phase is not in the fingerprint")
-
         settings.tournamentPhase = .earlyStage
+
+        // The solver rounds every raise to the small blind and computes SPR from the
+        // big blind, so a change to either has to invalidate the fingerprint.
+        settings.bigBlind = 5.0
+        #expect(viewModel.getCurrentStateString() != baseline, "big blind is not in the fingerprint")
+        settings.bigBlind = 1.0
+
+        settings.smallBlind = 0.25
+        #expect(viewModel.getCurrentStateString() != baseline, "small blind is not in the fingerprint")
     }
 }
 
@@ -154,6 +193,9 @@ struct PlayersInHandTests {
     /// priced against the players still in the pot, not against every seat.
     @Test("Equity is priced against the players still in the hand, not the table size")
     func equityFollowsPlayersInHand() async {
+        let snapshot = DefaultsSnapshot()
+        defer { snapshot.restore() }
+
         let settings = Settings()
         settings.numberOfPlayers = 9        // deliberately unlike the live player count
 
