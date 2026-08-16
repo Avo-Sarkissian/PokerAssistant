@@ -56,8 +56,8 @@ struct OpponentRange {
 
     /// Convert two cards to canonical hand string
     static func canonicalHand(_ card1: Card, _ card2: Card) -> String {
-        let r1 = card1.rank.symbol
-        let r2 = card2.rank.symbol
+        let r1 = card1.rank.tableSymbol
+        let r2 = card2.rank.tableSymbol
         let suited = card1.suit == card2.suit
 
         // Higher rank first

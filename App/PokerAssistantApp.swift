@@ -14,11 +14,6 @@ struct PokerAssistantApp: App {
                 .task {
                     // Connect settings after view appears
                     gameViewModel.settings = settings
-                    
-                    // Warm up PokerIntelligence in background
-                    Task.detached(priority: .background) {
-                        _ = PokerIntelligence.shared
-                    }
                 }
         }
     }

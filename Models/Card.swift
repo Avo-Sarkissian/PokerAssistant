@@ -36,6 +36,13 @@ enum Rank: Int, CaseIterable, Codable {
         case .ace: return "A"
         }
     }
+
+    /// Single-character key used by the starting-hand ranking tables.
+    /// `symbol` renders the ten as "10" for the UI, which does not match the "T"
+    /// the tables are keyed on — keep the two uses separate.
+    var tableSymbol: String {
+        self == .ten ? "T" : symbol
+    }
 }
 
 struct Card: Identifiable, Hashable, Codable {

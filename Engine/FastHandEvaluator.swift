@@ -2,28 +2,26 @@ import Foundation
 
 /// Fast 7-card poker hand evaluator.
 /// Evaluates all 7 cards directly using bit manipulation — no C(7,5) combo iteration.
-/// Pre-allocates reusable buffers on the instance to eliminate per-call heap allocation.
 /// Returns Int32 where higher value = stronger hand (safe for direct comparison).
-final class FastHandEvaluator {
-
-    // Pre-allocated mutable buffers — zeroed per call, never reallocated
-    private var rc  = [UInt8](repeating: 0, count: 15)  // rank counts, indices 2–14
-    private var sc  = [UInt8](repeating: 0, count: 4)   // suit counts, indices 0–3
-    private var srb = [UInt16](repeating: 0, count: 4)  // rank bitmask per suit
+///
+/// Stateless and therefore safe to share across threads: the counters live in SIMD
+/// locals on the stack, so concurrent calls cannot see each other's work. (An earlier
+/// version kept them as instance properties; sharing one instance across 8 tasks
+/// corrupted 98% of results.)
+final class FastHandEvaluator: @unchecked Sendable {
 
     /// Evaluate a 7-card hand. The array must contain exactly 7 cards.
     func evaluate(_ cards: [Card]) -> Int32 {
-        // Zero only the slots we use (avoids memset overhead for full array)
-        for i in 2...14 { rc[i] = 0 }
-        sc[0] = 0; sc[1] = 0; sc[2] = 0; sc[3] = 0
-        srb[0] = 0; srb[1] = 0; srb[2] = 0; srb[3] = 0
+        var rc  = SIMD16<UInt8>()   // rank counts, indices 2–14
+        var sc  = SIMD4<UInt8>()    // suit counts, indices 0–3
+        var srb = SIMD4<UInt16>()   // rank bitmask per suit
         var rb: UInt16 = 0
 
         for c in cards {
             let r = c.rank.rawValue   // 2–14
             let s = c.suit.suitIndex  // 0–3
-            rc[r] += 1
-            sc[s] += 1
+            rc[r] &+= 1
+            sc[s] &+= 1
             let bit = UInt16(1) << r
             srb[s] |= bit
             rb     |= bit

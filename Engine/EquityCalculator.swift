@@ -110,10 +110,13 @@ class EquityCalculator {
 
         case .preflop:
             // Check preflop lookup table first (instant if cached)
+            // Pass the caller's range through untouched. Substituting `.standard` for
+            // `.random` answered a different question than the one asked: with no bet
+            // in front of them, the user is asking about a random hand, not a raiser.
             if let cached = await PreflopEquityTable.shared.equity(
                 hand: hand,
                 opponents: opponents,
-                range: opponentRange != .random ? opponentRange : .standard
+                range: opponentRange
             ) {
                 PerformanceMonitor.shared.reportCalcInfo("Preflop table → \(String(format: "%.1f", cached * 100))%")
                 return cached

@@ -88,7 +88,9 @@ uint evaluate5Cards(uint c0, uint c1, uint c2, uint c3, uint c4) {
     if (numPairs == 1) {
         uint k[3]; int ki = 0;
         for (int i = 0; i < 5 && ki < 3; i++) if (r[i] != pairRanks[0]) k[ki++] = r[i];
-        return 1000000 + pairRanks[0] * 100000 + k[0] * 1000 + k[1] * 10 + k[2];
+        // 50000 keeps the largest one-pair score (1,714,142) below the 2,000,000
+        // two-pair base. With 100000 a pair of jacks or better outranked two pair.
+        return 1000000 + pairRanks[0] * 50000 + k[0] * 1000 + k[1] * 10 + k[2];
     }
     return (r[0] << 16) + (r[1] << 12) + (r[2] << 8) + (r[3] << 4) + r[4];
 }
@@ -115,6 +117,7 @@ kernel void monteCarloPoker(
     uint gid [[thread_position_in_grid]]
 ) {
     uint seed = randomSeeds[gid] ^ (gid * 1099087573u) ^ 0xDEADBEEF;
+    if (seed == 0) seed = 0x9E3779B9u;   // xorshift is degenerate at zero
 
     // Build available cards array
     uint availableCards[52];
@@ -148,8 +151,15 @@ kernel void monteCarloPoker(
         // CRITICAL: Use signed int to avoid unsigned underflow causing infinite loop
         uint neededCards = (5 - params->communityCount) + (params->opponents * 2);
         for (int i = 0; i < (int)neededCards && i < (int)availableCount; i++) {
-            seed = seed * 1664525u + 1013904223u;
-            uint j = i + (seed % (availableCount - i));
+            // xorshift32 rather than an LCG: the LCG's low bits have period 2^k, and
+            // `% bound` reads exactly those bits, which made consecutive draws
+            // correlated and the two-card opponent distribution non-uniform.
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            // Lemire's multiply-shift: unbiased-enough bounded draw from the HIGH bits.
+            uint bound = availableCount - (uint)i;
+            uint j = (uint)i + (uint)(((ulong)seed * (ulong)bound) >> 32);
             uint temp = shuffled[i];
             shuffled[i] = shuffled[j];
             shuffled[j] = temp;

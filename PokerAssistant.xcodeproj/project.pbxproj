@@ -30,7 +30,6 @@
 		D3A410702E3584A20057378A /* ExploitativeSolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A4106F2E3584A20057378A /* ExploitativeSolver.swift */; };
 		D3A410722E3584AD0057378A /* Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A410712E3584AD0057378A /* Extensions.swift */; };
 		D3A410742E3584B60057378A /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A410732E3584B60057378A /* Constants.swift */; };
-		D3A410782E367C260057378A /* PokerIntelligence.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A410772E367C260057378A /* PokerIntelligence.swift */; };
 		D3A4107A2E3792E50057378A /* PerformanceMonitorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A410792E3792E50057378A /* PerformanceMonitorView.swift */; };
 		D3CB6B3E2EFA628700F86392 /* PerformanceMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3CB6B3D2EFA627600F86392 /* PerformanceMonitor.swift */; };
 		D3EE00012F100001DEADBEEF /* FastHandEvaluator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3EE00002F100001DEADBEEF /* FastHandEvaluator.swift */; };
@@ -84,7 +83,6 @@
 		D3A4106F2E3584A20057378A /* ExploitativeSolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExploitativeSolver.swift; sourceTree = "<group>"; };
 		D3A410712E3584AD0057378A /* Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Extensions.swift; sourceTree = "<group>"; };
 		D3A410732E3584B60057378A /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
-		D3A410772E367C260057378A /* PokerIntelligence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PokerIntelligence.swift; sourceTree = "<group>"; };
 		D3A410792E3792E50057378A /* PerformanceMonitorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceMonitorView.swift; sourceTree = "<group>"; };
 		D3CB6B3D2EFA627600F86392 /* PerformanceMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceMonitor.swift; sourceTree = "<group>"; };
 		D3EE00002F100001DEADBEEF /* FastHandEvaluator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FastHandEvaluator.swift; sourceTree = "<group>"; };
@@ -220,7 +218,6 @@
 				D3A4106B2E3584890057378A /* MonteCarloEngine.swift */,
 				D3A4106D2E3584940057378A /* MetalCompute.swift */,
 				D3A4106F2E3584A20057378A /* ExploitativeSolver.swift */,
-				D3A410772E367C260057378A /* PokerIntelligence.swift */,
 				D3EE00002F100001DEADBEEF /* FastHandEvaluator.swift */,
 				D3EE00022F100003DEADBEEF /* ExactEnumerator.swift */,
 				D3EE00062F200002DEADBEEF /* PreflopEquityTable.swift */,
@@ -412,7 +409,6 @@
 				D3A410682E3584700057378A /* EquityCalculator.swift in Sources */,
 				D3A410662E35845A0057378A /* CalculationViewModel.swift in Sources */,
 				D3A4105A2E3584000057378A /* CardSelectorView.swift in Sources */,
-				D3A410782E367C260057378A /* PokerIntelligence.swift in Sources */,
 				D3A410582E3583F30057378A /* MainGameView.swift in Sources */,
 				D3EE00012F100001DEADBEEF /* FastHandEvaluator.swift in Sources */,
 				D3EE00032F100003DEADBEEF /* ExactEnumerator.swift in Sources */,

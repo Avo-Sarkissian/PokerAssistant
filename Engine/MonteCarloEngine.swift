@@ -2,7 +2,9 @@ import Foundation
 import Accelerate
 
 class MonteCarloEngine {
-    private let intelligence = PokerIntelligence.shared
+    /// The single hand-ranking implementation for every CPU path. It is stateless, so
+    /// one instance is safe to share across the worker tasks below.
+    private let evaluator = FastHandEvaluator()
 
     // Pre-built deck (immutable, thread-safe to share)
     private let deck = Card.deck()
@@ -54,8 +56,7 @@ class MonteCarloEngine {
 
         let startTime = Date()
         let batchSize = 50_000 // Run in batches for early termination checks
-        var totalWins = 0
-        var totalTies = 0
+        var totalEquity = 0.0
         var totalRuns = 0
         var iterationsCompleted = 0
 
@@ -91,28 +92,24 @@ class MonteCarloEngine {
                     }
                 }
 
-                var batchWins = 0
-                var batchTies = 0
+                var batchEquity = 0.0
                 var batchRuns = 0
 
                 for await result in group {
-                    batchWins += result.wins
-                    batchTies += result.ties
+                    batchEquity += result.equitySum
                     batchRuns += result.total
                 }
 
-                return (wins: batchWins, ties: batchTies, total: batchRuns)
+                return (equitySum: batchEquity, total: batchRuns)
             }
 
-            totalWins += batchResults.wins
-            totalTies += batchResults.ties
+            totalEquity += batchResults.equitySum
             totalRuns += batchResults.total
             iterationsCompleted += currentBatchSize
 
             // Check for convergence after each batch (but only after minimum samples)
             if totalRuns >= 50_000 {
-                let equity = Double(totalWins) / Double(totalRuns) +
-                            (Double(totalTies) / Double(totalRuns) * 0.5)
+                let equity = totalEquity / Double(totalRuns)
                 let standardError = calculateStandardError(
                     equity: equity,
                     sampleSize: totalRuns
@@ -129,9 +126,7 @@ class MonteCarloEngine {
 
         guard totalRuns > 0 else { return 0.0 }
 
-        let equity = Double(totalWins) / Double(totalRuns) +
-                    (Double(totalTies) / Double(totalRuns) * 0.5)
-        return min(1.0, max(0.0, equity))
+        return min(1.0, max(0.0, totalEquity / Double(totalRuns)))
     }
 
     /// Calculate standard error for equity estimation
@@ -142,9 +137,10 @@ class MonteCarloEngine {
         return standardError
     }
     
+    /// `equitySum` accumulates fractional pot shares, so a three-way chop contributes
+    /// 1/3 rather than the 1/2 a win/tie counter would imply.
     private struct SimulationResult {
-        let wins: Int
-        let ties: Int
+        let equitySum: Double
         let total: Int
     }
     
@@ -175,14 +171,14 @@ class MonteCarloEngine {
             }
 
             let availableCount = availableCards.count
-            let neededCards = (5 - hand.communityCards.count) + (opponents * 2)
+            let boardNeeded = 5 - hand.communityCards.count
+            let neededCards = boardNeeded + (opponents * 2)
 
             guard availableCount >= neededCards else {
-                return SimulationResult(wins: 0, ties: 0, total: 0)
+                return SimulationResult(equitySum: 0, total: 0)
             }
 
-            var wins = 0
-            var ties = 0
+            var equitySum = 0.0
 
             // Pre-allocate arrays for reuse
             var indices = Array(0..<availableCount)
@@ -196,75 +192,83 @@ class MonteCarloEngine {
             oppCards.reserveCapacity(7)
 
             let useRangeFilter = opponentRange != .random
-            var validIterations = 0
+            // Guards against a range so narrow that the remaining deck cannot fill it.
+            let maxRedraws = 256
 
-            // Simple, fast simulation loop
             for _ in 0..<iterations {
-                // Fisher-Yates partial shuffle - only shuffle what we need
-                for i in 0..<neededCards {
-                    let j = Int.random(in: i..<availableCount, using: &rng)
-                    indices.swapAt(i, j)
+                // 1. Deal hole cards before the board, exactly as a real deal does.
+                //    Rejecting a hand after the board is already fixed would
+                //    over-weight boards that consume the range's own cards.
+                //
+                //    A seat whose cards fall outside the range is re-dealt, never
+                //    removed: dropping the player silently changes how many opponents
+                //    hero is up against and inflates equity.
+                var cardIndex = 0
+                for _ in 0..<opponents {
+                    var draws = 0
+                    while true {
+                        let a = Int.random(in: cardIndex..<availableCount, using: &rng)
+                        indices.swapAt(cardIndex, a)
+                        let b = Int.random(in: (cardIndex + 1)..<availableCount, using: &rng)
+                        indices.swapAt(cardIndex + 1, b)
+                        draws += 1
+
+                        if !useRangeFilter { break }
+                        let inRange = OpponentRange.isHandInRange(
+                            availableCards[indices[cardIndex]],
+                            availableCards[indices[cardIndex + 1]],
+                            range: opponentRange
+                        )
+                        if inRange || draws >= maxRedraws { break }
+                    }
+                    cardIndex += 2
                 }
 
-                // Deal community cards
+                // 2. Run the board out of whatever is left.
                 communityCards.removeAll(keepingCapacity: true)
                 communityCards.append(contentsOf: hand.communityCards)
-
-                var cardIndex = 0
-                while communityCards.count < 5 {
-                    communityCards.append(availableCards[indices[cardIndex]])
-                    cardIndex += 1
+                for i in 0..<boardNeeded {
+                    let slot = cardIndex + i
+                    let j = Int.random(in: slot..<availableCount, using: &rng)
+                    indices.swapAt(slot, j)
+                    communityCards.append(availableCards[indices[slot]])
                 }
 
-                // Evaluate opponent hands - simple sequential dealing
-                var bestOpponentValue = 0
-                var validOpponentCount = 0
+                // 3. Score every opponent against the finished board.
+                var bestOpponentValue = Int32.min
+                var tiedOpponents = 0
 
-                for _ in 0..<opponents {
-                    let oppCard1 = availableCards[indices[cardIndex]]
-                    let oppCard2 = availableCards[indices[cardIndex + 1]]
-                    cardIndex += 2
-
-                    // Range filter: skip hands outside opponent's likely range
-                    if useRangeFilter {
-                        if !OpponentRange.isHandInRange(oppCard1, oppCard2, range: opponentRange) {
-                            continue  // Skip this opponent, they wouldn't play this hand
-                        }
-                    }
-
+                for seat in 0..<opponents {
                     oppCards.removeAll(keepingCapacity: true)
-                    oppCards.append(oppCard1)
-                    oppCards.append(oppCard2)
+                    oppCards.append(availableCards[indices[seat * 2]])
+                    oppCards.append(availableCards[indices[seat * 2 + 1]])
                     oppCards.append(contentsOf: communityCards)
 
-                    let oppValue = Int(intelligence.evaluate7(oppCards))
-                    bestOpponentValue = max(bestOpponentValue, oppValue)
-                    validOpponentCount += 1
+                    let oppValue = evaluator.evaluate(oppCards)
+                    if oppValue > bestOpponentValue {
+                        bestOpponentValue = oppValue
+                        tiedOpponents = 1
+                    } else if oppValue == bestOpponentValue {
+                        tiedOpponents += 1
+                    }
                 }
-
-                // Skip iterations where no opponents had hands in range
-                // We want equity against hands they WOULD play, not "they all folded"
-                if useRangeFilter && validOpponentCount == 0 {
-                    continue
-                }
-
-                validIterations += 1
 
                 // Evaluate my hand
                 myHandCards.removeAll(keepingCapacity: true)
                 myHandCards.append(contentsOf: hand.holeCards)
                 myHandCards.append(contentsOf: communityCards)
 
-                let myValue = Int(intelligence.evaluate7(myHandCards))
+                let myValue = evaluator.evaluate(myHandCards)
 
                 if myValue > bestOpponentValue {
-                    wins += 1
+                    equitySum += 1.0
                 } else if myValue == bestOpponentValue {
-                    ties += 1
+                    // Split the pot with every opponent holding the same hand.
+                    equitySum += 1.0 / Double(tiedOpponents + 1)
                 }
             }
 
-            return SimulationResult(wins: wins, ties: ties, total: validIterations)
+            return SimulationResult(equitySum: equitySum, total: iterations)
         }
     
     private func simulateSingleThread(
@@ -288,8 +292,6 @@ class MonteCarloEngine {
 
         guard result.total > 0 else { return 0.0 }
 
-        let equity = Double(result.wins) / Double(result.total) +
-                    (Double(result.ties) / Double(result.total) * 0.5)
-        return min(1.0, max(0.0, equity))
+        return min(1.0, max(0.0, result.equitySum / Double(result.total)))
     }
 }

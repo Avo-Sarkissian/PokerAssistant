@@ -14,13 +14,28 @@ final class PreflopEquityTable {
 
     private let engine = MonteCarloEngine()
     private let defaults = UserDefaults.standard
-    private let prefix   = "PreflopEq_"
+
+    /// Bump this whenever the evaluator, the sampler, or the range model changes.
+    /// Cached equities are permanent otherwise, so a corrected engine would never
+    /// reach anyone who had already opened the app.
+    private static let schemaVersion = 2
+    private let prefix = "PreflopEq_v\(PreflopEquityTable.schemaVersion)_"
 
     // In-memory cache so repeated same-session lookups skip UserDefaults entirely
     private var memCache: [String: Double] = [:]
     private let lock = NSLock()
 
-    private init() {}
+    private init() {
+        purgeStaleSchemas()
+    }
+
+    /// Drop equities written by an earlier engine so a fix actually takes effect.
+    private func purgeStaleSchemas() {
+        let stale = defaults.dictionaryRepresentation().keys.filter {
+            $0.hasPrefix("PreflopEq_") && !$0.hasPrefix(prefix)
+        }
+        for key in stale { defaults.removeObject(forKey: key) }
+    }
 
     // MARK: – Public API
 
