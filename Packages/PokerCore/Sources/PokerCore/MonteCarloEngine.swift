@@ -3,10 +3,10 @@ import Accelerate
 
 /// Small, fast, seedable generator. Having one lets a caller pin an equity for a
 /// regression test; `SystemRandomNumberGenerator` cannot be seeded at all.
-struct SplitMix64: RandomNumberGenerator {
+public struct SplitMix64: RandomNumberGenerator {
     private var state: UInt64
-    init(seed: UInt64) { self.state = seed }
-    mutating func next() -> UInt64 {
+    public init(seed: UInt64) { self.state = seed }
+    public mutating func next() -> UInt64 {
         state = state &+ 0x9E3779B97F4A7C15
         var z = state
         z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
@@ -15,7 +15,7 @@ struct SplitMix64: RandomNumberGenerator {
     }
 }
 
-class MonteCarloEngine {
+public final class MonteCarloEngine {
     /// The single hand-ranking implementation for every CPU path. It is stateless, so
     /// one instance is safe to share across the worker tasks below.
     private let evaluator = FastHandEvaluator()
@@ -27,20 +27,27 @@ class MonteCarloEngine {
     private let coreCount: Int
     private let performanceCores: Int = 6  // A18 Pro has 6 performance cores
 
-    init() {
+    public init() {
         // Use all available cores for iPhone 16 Pro
         self.coreCount = min(performanceCores, ProcessInfo.processInfo.activeProcessorCount)
 
         // Report to performance monitor
-        PerformanceMonitor.shared.reportActiveCores(coreCount)
+        EngineTelemetry.activeCores(coreCount)
     }
     
     /// Main simulate function with opponent range weighting and early termination
     /// - Parameters:
     ///   - opponentRange: The estimated range of hands opponents might hold
     ///   - confidenceThreshold: Standard error threshold for early termination (e.g., 0.005 for 0.5%)
-    ///   - maxTimeSeconds: Maximum wall-clock time before forced termination
-    func simulate(
+    ///   - maxTimeSeconds: Maximum wall-clock time before forced termination.
+    ///     **Ignored when `seed` is supplied** — see `seed`.
+    ///   - seed: Pins the sample so the same call returns the same number. A seeded run
+    ///     is asking for one specific value, and a wall-clock cutoff would make that
+    ///     value depend on how busy the machine is, so a seeded run always completes
+    ///     every iteration requested. The caller owns the cost: at the app's deeper
+    ///     `CalculationDepth` settings that is tens of millions of iterations with no
+    ///     upper bound on time. Leave it nil for anything user-facing.
+    public func simulate(
         hand: Hand,
         opponents: Int,
         deadCards: Set<Card>,
@@ -53,7 +60,7 @@ class MonteCarloEngine {
         guard hand.holeCards.count == 2 else { return 0.0 }
 
         // Report GPU not active (CPU mode)
-        PerformanceMonitor.shared.reportGPUActive(false)
+        EngineTelemetry.gpuActive(false)
 
         // For small iterations, don't parallelize (overhead > gain)
         if iterations < 10000 {
@@ -68,7 +75,7 @@ class MonteCarloEngine {
         }
 
         // Report active cores for this calculation
-        PerformanceMonitor.shared.reportActiveCores(coreCount)
+        EngineTelemetry.activeCores(coreCount)
 
         let startTime = Date()
         let batchSize = 50_000 // Run in batches for early termination checks
@@ -82,6 +89,13 @@ class MonteCarloEngine {
         // randomness, which is the normal path.
         let baseSeed = seed ?? UInt64.random(in: UInt64.min...UInt64.max)
 
+        // The wall-clock cutoff protects the UI from a run that will not finish in time.
+        // A seeded run is asking for a specific number instead, and the clock is the one
+        // input the caller cannot control: leaving it armed made the answer depend on how
+        // busy the machine was, so the same seed returned 0.63821 on a loaded machine and
+        // 0.63784 on an idle one. Seeded runs complete every iteration they were asked for.
+        let deadlineApplies = seed == nil
+
         // Run batches until convergence or limits reached
         while iterationsCompleted < iterations {
             let remainingIterations = iterations - iterationsCompleted
@@ -89,8 +103,8 @@ class MonteCarloEngine {
 
             // Check timeout
             let elapsed = Date().timeIntervalSince(startTime)
-            if elapsed >= maxTimeSeconds {
-                PerformanceMonitor.shared.reportCalcInfo("CPU: \(iterationsCompleted/1000)K (timeout)")
+            if deadlineApplies && elapsed >= maxTimeSeconds {
+                EngineTelemetry.info("CPU: \(iterationsCompleted/1000)K (timeout)")
                 break
             }
 
@@ -149,7 +163,7 @@ class MonteCarloEngine {
                 // Early termination if converged
                 if standardError < confidenceThreshold {
                     let elapsedTime = Date().timeIntervalSince(startTime)
-                    PerformanceMonitor.shared.reportCalcInfo("CPU: \(totalRuns/1000)K, SE=\(String(format: "%.3f", standardError * 100))%, \(String(format: "%.1f", elapsedTime))s")
+                    EngineTelemetry.info("CPU: \(totalRuns/1000)K, SE=\(String(format: "%.3f", standardError * 100))%, \(String(format: "%.1f", elapsedTime))s")
                     break
                 }
             }
@@ -312,7 +326,7 @@ class MonteCarloEngine {
         seed: UInt64?
     ) async -> Double {
         // Report single core usage
-        PerformanceMonitor.shared.reportActiveCores(1)
+        EngineTelemetry.activeCores(1)
 
         let result = simulateOnCore(
             hand: hand,

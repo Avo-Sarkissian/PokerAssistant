@@ -1,77 +1,9 @@
 import Foundation
 import SwiftUI
+import PokerCore
 
-// MARK: - Game Mode
-
-enum GameMode: String, CaseIterable {
-    case cashGame   = "Cash Game"
-    case tournament = "Tournament"
-}
-
-// MARK: - Tournament Phase
-
-enum TournamentPhase: String, CaseIterable {
-    case earlyStage  = "Early"
-    case midStage    = "Mid"
-    case bubble      = "Bubble"
-    case inMoney     = "In the Money"
-    case finalTable  = "Final Table"
-
-    /// ICM pressure factor: 0.0 = no pressure (cash game feel), 0.5 = maximum pressure.
-    /// Multiplied against fold thresholds in the solver to widen folding ranges.
-    var icmPressure: Double {
-        switch self {
-        case .earlyStage: return 0.0
-        case .midStage:   return 0.10
-        case .bubble:     return 0.40
-        case .inMoney:    return 0.25
-        case .finalTable: return 0.30
-        }
-    }
-
-    var subtitle: String {
-        switch self {
-        case .earlyStage:  return "Deep stacks, play for chips"
-        case .midStage:    return "Stack pressure building"
-        case .bubble:      return "Every fold = money — maximise survival"
-        case .inMoney:     return "Relaxed slightly, play for stack depth"
-        case .finalTable:  return "Pay-jump pressure, play tight"
-        }
-    }
-}
-
-// MARK: - Opponent Style
-
-enum OpponentStyle: String, CaseIterable, Codable {
-    case unknown  = "Unknown"
-    case tight    = "Tight"
-    case standard = "Standard"
-    case loose    = "Loose"
-    case aggressive = "Aggressive"
-    case passive  = "Passive"
-
-    var rangeType: OpponentRange.RangeType {
-        switch self {
-        case .unknown:    return .standard
-        case .tight:      return .tight
-        case .standard:   return .standard
-        case .loose:      return .wide
-        case .aggressive: return .wide
-        case .passive:    return .standard
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .unknown:    return "questionmark"
-        case .tight:      return "shield"
-        case .standard:   return "person"
-        case .loose:      return "flame"
-        case .aggressive: return "bolt"
-        case .passive:    return "hand.raised"
-        }
-    }
-}
+// `GameMode`, `TournamentPhase` and `OpponentStyle` live in PokerCore: the solver
+// reads all three, and it can only be tested away from the app if they come with it.
 
 class Settings: ObservableObject {
     @AppStorage("buyIn") var buyIn: Double = 20
@@ -112,6 +44,19 @@ class Settings: ObservableObject {
     
     var numberOfOpponents: Int {
         max(1, numberOfPlayers - 1)
+    }
+
+    /// The three numbers the solver actually reads, as a plain value.
+    ///
+    /// Handing the solver `Settings` itself put @AppStorage inside an EV calculation:
+    /// every solver test wrote blind levels into the shipping app's defaults, and the
+    /// solver could not be compiled without SwiftUI.
+    var solverSettings: SolverSettings {
+        SolverSettings(
+            smallBlind: smallBlind,
+            bigBlind: bigBlind,
+            icmPressure: gameMode == .tournament ? tournamentPhase.icmPressure : 0
+        )
     }
     
     enum CalculationDepth: String, CaseIterable {

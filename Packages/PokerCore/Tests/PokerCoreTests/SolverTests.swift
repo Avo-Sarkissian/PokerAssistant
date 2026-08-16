@@ -1,11 +1,13 @@
 import Testing
 import Foundation
-@testable import PokerAssistant
+import PokerCore
+import PokerTestSupport
 
 // MARK: - Spot construction
 
-/// Builds a `GameStateCopy` for the solver without going through the UI.
-@MainActor
+/// Builds a `GameStateCopy` for the solver directly, with no view model and no
+/// UserDefaults in the way. Building one through the app's `GameState` used to leak
+/// blind levels into the shipping app's defaults; the solver never needed either.
 func spot(hole: String = "Ad Ac",
           board: String = "",
           pot: Double,
@@ -16,29 +18,27 @@ func spot(hole: String = "Ad Ac",
           playersInHand: Int = 2,
           bigBlind: Double = 1.0,
           opponentStyle: OpponentStyle = .unknown) -> GameStateCopy {
-    let state = GameState()
     let holeCards = cards(hole)
-    state.holeCards = [holeCards[0], holeCards[1]]
     var community: [Card?] = [nil, nil, nil, nil, nil]
     for (i, c) in cards(board).enumerated() where i < 5 { community[i] = c }
-    state.communityCards = community
-    state.potSize = pot
-    state.toCall = toCall
-    state.stack = stack
-    state.villainStack = villainStack
-    state.position = position
-    state.playersInHand = playersInHand
-    state.bigBlind = bigBlind
-    state.opponentStyle = opponentStyle
-    return GameStateCopy(from: state)
+
+    return GameStateCopy(
+        holeCards: [holeCards[0], holeCards[1]],
+        communityCards: community,
+        deadCards: [],
+        stack: stack,
+        villainStack: villainStack,
+        position: position,
+        potSize: pot,
+        toCall: toCall,
+        bigBlind: bigBlind,
+        opponentStyle: opponentStyle,
+        playersInHand: playersInHand
+    )
 }
 
-func makeSettings(bigBlind: Double = 1.0, smallBlind: Double = 0.5) -> Settings {
-    let s = Settings()
-    s.bigBlind = bigBlind
-    s.smallBlind = smallBlind
-    s.gameMode = .cashGame
-    return s
+func makeSettings(bigBlind: Double = 1.0, smallBlind: Double = 0.5) -> SolverSettings {
+    SolverSettings(smallBlind: smallBlind, bigBlind: bigBlind, icmPressure: 0)
 }
 
 private func evOf(_ action: CalculationResult.RecommendedAction,
@@ -53,7 +53,6 @@ private func evOf(_ action: CalculationResult.RecommendedAction,
 // MARK: - EV algebra
 
 @Suite("Solver EV algebra")
-@MainActor
 struct SolverEVTests {
 
     /// The textbook price of a call: win the pot plus villain's bet with probability
@@ -101,7 +100,6 @@ struct SolverEVTests {
 // MARK: - Fold equity
 
 @Suite("Fold equity")
-@MainActor
 struct FoldEquityTests {
 
     /// A player who is already all in cannot fold. Crediting fold equity against them
@@ -145,7 +143,6 @@ struct FoldEquityTests {
 // MARK: - Legal actions
 
 @Suite("Legal actions")
-@MainActor
 struct LegalActionTests {
 
     /// A recommendation the player cannot physically make is worse than no
@@ -200,7 +197,6 @@ struct LegalActionTests {
 // MARK: - Decision follows the EVs
 
 @Suite("Decision consistency")
-@MainActor
 struct DecisionConsistencyTests {
 
     /// The banner and the alternatives panel beneath it are two views of one decision.

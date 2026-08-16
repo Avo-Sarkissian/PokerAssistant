@@ -1,0 +1,70 @@
+#!/bin/bash
+#
+# Run the whole test suite.
+#
+# It takes two commands, not one. The engine lives in Packages/PokerCore and its
+# tests are a SwiftPM test target, which Xcode will not run from a project-based
+# scheme — so `xcodebuild -scheme PokerAssistant test` and Cmd-U in Xcode cover only
+# the 8 tests that genuinely need a simulator. The other 46, including every hand
+# evaluation, equity, range and solver assertion, only run through `swift test`.
+#
+# Use this script rather than either command on its own. CI runs the same two steps.
+#
+# Usage:  ./scripts/test            both suites
+#         ./scripts/test core       the engine only (fast: no simulator)
+#         ./scripts/test app        the simulator-bound tests only
+
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+WHICH="${1:-all}"
+
+# Prefer whatever the developer already has booted — the device names available differ
+# between machines and CI, and a hard-coded name is the usual reason this script fails
+# on someone else's laptop. POKER_TEST_DESTINATION overrides; CI sets it.
+pick_destination() {
+    if [ -n "${POKER_TEST_DESTINATION:-}" ]; then
+        echo "$POKER_TEST_DESTINATION"
+        return
+    fi
+    local list booted
+    list=$(xcrun simctl list devices booted 2>/dev/null || true)
+    # An iPhone if one is booted, otherwise whatever is.
+    booted=$(printf '%s\n' "$list" | grep iPhone \
+             | grep -oE '[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}' \
+             | head -1)
+    [ -n "$booted" ] || booted=$(printf '%s\n' "$list" \
+             | grep -oE '[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}' \
+             | head -1)
+    if [ -n "$booted" ]; then
+        echo "platform=iOS Simulator,id=$booted"
+    else
+        echo "platform=iOS Simulator,name=iPhone 16 Pro"
+    fi
+}
+
+DESTINATION="$(pick_destination)"
+
+run_core() {
+    echo "==> PokerCore (no simulator)"
+    swift test --package-path Packages/PokerCore
+}
+
+run_app() {
+    echo "==> PokerAssistantTests (simulator: $DESTINATION)"
+    xcodebuild \
+        -project PokerAssistant.xcodeproj \
+        -scheme PokerAssistant \
+        -destination "$DESTINATION" \
+        -only-testing:PokerAssistantTests \
+        test
+}
+
+case "$WHICH" in
+    core) run_core ;;
+    app)  run_app ;;
+    all)  run_core; run_app ;;
+    *)    echo "usage: $0 [all|core|app]" >&2; exit 2 ;;
+esac
+
+echo "==> all requested suites passed"

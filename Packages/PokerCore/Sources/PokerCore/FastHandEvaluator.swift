@@ -8,10 +8,12 @@ import Foundation
 /// locals on the stack, so concurrent calls cannot see each other's work. (An earlier
 /// version kept them as instance properties; sharing one instance across 8 tasks
 /// corrupted 98% of results.)
-final class FastHandEvaluator: @unchecked Sendable {
+public final class FastHandEvaluator: @unchecked Sendable {
+
+    public init() {}
 
     /// Evaluate a 7-card hand. The array must contain exactly 7 cards.
-    func evaluate(_ cards: [Card]) -> Int32 {
+    public func evaluate(_ cards: [Card]) -> Int32 {
         var rc  = SIMD16<UInt8>()   // rank counts, indices 2–14
         var sc  = SIMD4<UInt8>()    // suit counts, indices 0–3
         var srb = SIMD4<UInt16>()   // rank bitmask per suit

@@ -2,9 +2,9 @@ import Foundation
 
 /// Represents opponent's likely hand range based on their action
 /// Uses Sklansky-Chubukov rankings adapted for 6-max cash games
-struct OpponentRange {
+public struct OpponentRange {
 
-    enum RangeType: Double {
+    public enum RangeType: Double, Sendable {
         case veryTight = 0.10   // Top 10% - 3bet/4bet range
         case tight = 0.20       // Top 20% - open-raise from EP
         case standard = 0.35    // Top 35% - open-raise from MP/CO
@@ -12,7 +12,7 @@ struct OpponentRange {
         case veryWide = 0.70    // Top 70% - limp/call range
         case random = 1.0       // Any two cards
 
-        var percentile: Double { rawValue }
+        public var percentile: Double { rawValue }
     }
 
     /// Hand strength rankings (0-168, lower = stronger)
@@ -55,7 +55,7 @@ struct OpponentRange {
     }()
 
     /// Convert two cards to canonical hand string
-    static func canonicalHand(_ card1: Card, _ card2: Card) -> String {
+    public static func canonicalHand(_ card1: Card, _ card2: Card) -> String {
         let r1 = card1.rank.tableSymbol
         let r2 = card2.rank.tableSymbol
         let suited = card1.suit == card2.suit
@@ -74,20 +74,20 @@ struct OpponentRange {
     }
 
     /// Get hand strength index (0 = AA, 168 = 72o)
-    static func handStrength(_ card1: Card, _ card2: Card) -> Int {
+    public static func handStrength(_ card1: Card, _ card2: Card) -> Int {
         let hand = canonicalHand(card1, card2)
         return handRankings[hand] ?? 168
     }
 
     /// Check if hand is within range
-    static func isHandInRange(_ card1: Card, _ card2: Card, range: RangeType) -> Bool {
+    public static func isHandInRange(_ card1: Card, _ card2: Card, range: RangeType) -> Bool {
         let strength = handStrength(card1, card2)
         let threshold = Int(Double(169) * range.percentile)
         return strength < threshold
     }
 
     /// Determine opponent range based on their action
-    static func rangeFromAction(
+    public static func rangeFromAction(
         potRelativeBet: Double,
         street: Street,
         isRaise: Bool

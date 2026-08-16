@@ -1,4 +1,5 @@
 import SwiftUI
+import PokerCore
 
 struct ResultView: View {
     let result: CalculationResult

@@ -12,15 +12,17 @@ import Foundation
 ///
 /// All other situations (3+ opponents, or turn 2+ opponents) are left to the
 /// GPU Monte Carlo path which is faster than full enumeration for those cases.
-final class ExactEnumerator {
+public final class ExactEnumerator {
 
     private let deck     = Card.deck()            // 52 cards, stable UUIDs
     private let evaluator = FastHandEvaluator()   // reusable instance, pre-allocated buffers
 
+    public init() {}
+
     // MARK: – Public API
 
     /// Exact river equity (1 or 2 opponents). Returns nil if unsupported case.
-    func calculateRiver(hand: Hand, opponents: Int, deadCards: Set<Card>,
+    public func calculateRiver(hand: Hand, opponents: Int, deadCards: Set<Card>,
                         opponentRange: OpponentRange.RangeType = .random) -> Double? {
         guard hand.communityCards.count == 5 else { return nil }
         let available = buildAvailable(hand: hand, deadCards: deadCards)
@@ -32,7 +34,7 @@ final class ExactEnumerator {
     }
 
     /// Exact turn equity (1 opponent only). Returns nil if unsupported.
-    func calculateTurn(hand: Hand, opponents: Int, deadCards: Set<Card>,
+    public func calculateTurn(hand: Hand, opponents: Int, deadCards: Set<Card>,
                        opponentRange: OpponentRange.RangeType = .random) -> Double? {
         guard hand.communityCards.count == 4, opponents == 1 else { return nil }
         let available = buildAvailable(hand: hand, deadCards: deadCards)
@@ -42,7 +44,7 @@ final class ExactEnumerator {
     /// Exact flop equity (1 opponent only).
     /// Enumerates every (turn, river) pair × every opponent hand.
     /// ~46×45/2 × 44×43/2 ≈ 1.07M evaluations — typically ~300 ms.
-    func calculateFlop(hand: Hand, opponents: Int, deadCards: Set<Card>,
+    public func calculateFlop(hand: Hand, opponents: Int, deadCards: Set<Card>,
                        opponentRange: OpponentRange.RangeType = .random) -> Double? {
         guard hand.communityCards.count == 3, opponents == 1 else { return nil }
         let available = buildAvailable(hand: hand, deadCards: deadCards)

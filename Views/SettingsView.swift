@@ -1,4 +1,5 @@
 import SwiftUI
+import PokerCore
 
 struct SettingsView: View {
     @EnvironmentObject var settings: Settings

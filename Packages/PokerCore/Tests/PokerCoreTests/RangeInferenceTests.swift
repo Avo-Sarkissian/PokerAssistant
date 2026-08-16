@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import PokerAssistant
+import PokerCore
 
 @Suite("Range inference input")
 struct RangeInferenceTests {

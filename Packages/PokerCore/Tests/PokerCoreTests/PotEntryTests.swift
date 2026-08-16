@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import PokerAssistant
+import PokerCore
 
 @Suite("Pot entry")
 struct PotEntryTests {

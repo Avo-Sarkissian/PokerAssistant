@@ -1,4 +1,5 @@
 import Foundation
+import PokerCore
 
 class EquityCalculator {
 
@@ -71,6 +72,10 @@ class EquityCalculator {
         guard hand.communityCards.count <= 5 else { return 0.0 }
         guard opponents >= 1               else { return 0.0 }
 
+        // Load-bearing beyond the counter it looks like: `reportCalculation` is the only
+        // thing that starts the monitor's sampling timer, so deleting it blanks the whole
+        // performance panel. If this file ever follows the engine into PokerCore, this
+        // call needs an `EngineTelemetrySink` requirement to survive the move.
         PerformanceMonitor.shared.reportCalculation()
 
         // ── Routing ───────────────────────────────────────────────────────

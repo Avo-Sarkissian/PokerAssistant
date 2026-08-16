@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import PokerCore
 
 class GameState: ObservableObject {
     @Published var holeCards: [Card?] = [nil, nil]
@@ -107,49 +108,23 @@ class GameState: ObservableObject {
     }
 }
 
-/// Thread-safe copy of GameState for background calculations
-/// This struct can be safely passed to detached tasks
-struct GameStateCopy: Sendable {
-    let holeCards: [Card?]
-    let communityCards: [Card?]
-    let deadCards: Set<Card>
-    let stack: Double
-    let villainStack: Double
-    let position: String
-    let potSize: Double
-    let toCall: Double
-    let bigBlind: Double
-    let opponentStyle: OpponentStyle
-    let playersInHand: Int
-
-    /// Opponents hero is actually up against right now.
-    var opponentCount: Int { max(1, playersInHand - 1) }
-
-    /// Neither player can win or lose more than the smaller stack.
-    var effectiveStackChips: Double { min(stack, villainStack) }
-
+/// `GameStateCopy` itself lives in PokerCore — it is the solver's only input, so the
+/// solver could not be tested without it. Only the bridge from the observable app
+/// object stays here.
+extension GameStateCopy {
     init(from gameState: GameState) {
-        self.holeCards = gameState.holeCards
-        self.communityCards = gameState.communityCards
-        self.deadCards = gameState.deadCards
-        self.stack = gameState.stack
-        self.villainStack = gameState.villainStack
-        self.position = gameState.position
-        self.potSize = gameState.potSize
-        self.toCall = gameState.toCall
-        self.bigBlind = gameState.bigBlind
-        self.opponentStyle = gameState.opponentStyle
-        self.playersInHand = gameState.playersInHand
-    }
-
-    var currentStreet: Street {
-        let communityCount = communityCards.compactMap { $0 }.count
-        switch communityCount {
-        case 0: return .preflop
-        case 3: return .flop
-        case 4: return .turn
-        case 5: return .river
-        default: return .preflop
-        }
+        self.init(
+            holeCards: gameState.holeCards,
+            communityCards: gameState.communityCards,
+            deadCards: gameState.deadCards,
+            stack: gameState.stack,
+            villainStack: gameState.villainStack,
+            position: gameState.position,
+            potSize: gameState.potSize,
+            toCall: gameState.toCall,
+            bigBlind: gameState.bigBlind,
+            opponentStyle: gameState.opponentStyle,
+            playersInHand: gameState.playersInHand
+        )
     }
 }

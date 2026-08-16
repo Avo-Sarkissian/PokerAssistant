@@ -1,25 +1,39 @@
 import Foundation
 
-enum Suit: String, CaseIterable, Codable {
+public enum Suit: String, CaseIterable, Codable, Sendable {
     case spades = "♠"
     case hearts = "♥"
     case diamonds = "♦"
     case clubs = "♣"
-    
-    var symbol: String { rawValue }
-    var color: String {
+
+    public var symbol: String { rawValue }
+    public var color: String {
         switch self {
         case .hearts, .diamonds: return "red"
         case .spades, .clubs: return "black"
         }
     }
+
+    /// Reliable suit index for card encoding (0–3).
+    ///
+    /// This used to live in `Utils/Extensions.swift` beside the SwiftUI colour
+    /// helpers, which meant every engine that encoded a card pulled in SwiftUI. It
+    /// belongs with the card.
+    public var suitIndex: Int {
+        switch self {
+        case .spades: return 0
+        case .hearts: return 1
+        case .diamonds: return 2
+        case .clubs: return 3
+        }
+    }
 }
 
-enum Rank: Int, CaseIterable, Codable {
+public enum Rank: Int, CaseIterable, Codable, Sendable {
     case two = 2, three, four, five, six, seven, eight, nine, ten
     case jack = 11, queen = 12, king = 13, ace = 14
-    
-    var symbol: String {
+
+    public var symbol: String {
         switch self {
         case .two: return "2"
         case .three: return "3"
@@ -40,29 +54,35 @@ enum Rank: Int, CaseIterable, Codable {
     /// Single-character key used by the starting-hand ranking tables.
     /// `symbol` renders the ten as "10" for the UI, which does not match the "T"
     /// the tables are keyed on — keep the two uses separate.
-    var tableSymbol: String {
+    public var tableSymbol: String {
         self == .ten ? "T" : symbol
     }
 }
 
-struct Card: Identifiable, Hashable, Codable {
+public struct Card: Identifiable, Hashable, Codable, Sendable {
     // FIXED: Changed 'let' to 'var' to satisfy Codable requirements
-    var id = UUID()
-    let rank: Rank
-    let suit: Suit
-    
-    var displayString: String {
+    public var id = UUID()
+    public let rank: Rank
+    public let suit: Suit
+
+    public init(id: UUID = UUID(), rank: Rank, suit: Suit) {
+        self.id = id
+        self.rank = rank
+        self.suit = suit
+    }
+
+    public var displayString: String {
         "\(rank.symbol)\(suit.symbol)"
     }
-    
+
     // Bit representation for fast hand evaluation
-    var bitValue: UInt64 {
+    public var bitValue: UInt64 {
         let rankBit = UInt64(1) << (rank.rawValue - 2)
         let suitOffset = suit == .spades ? 0 : suit == .hearts ? 13 : suit == .diamonds ? 26 : 39
         return rankBit << suitOffset
     }
-    
-    static func deck() -> [Card] {
+
+    public static func deck() -> [Card] {
         var cards: [Card] = []
         for suit in Suit.allCases {
             for rank in Rank.allCases {

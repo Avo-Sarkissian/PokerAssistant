@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import PokerCore
 
 class CalculationViewModel: ObservableObject {
     @Published var progressUpdate: ProgressUpdate?
@@ -59,7 +60,8 @@ class CalculationViewModel: ObservableObject {
         try Task.checkCancellation()
 
         // Run solver for action, EVs, reasoning, board texture
-        let solverResult = solver.solve(gameState: gameState, myEquity: equity, settings: settings)
+        let solverResult = solver.solve(gameState: gameState, myEquity: equity,
+                                        settings: settings.solverSettings)
 
         // Build expected value for recommended action
         let expectedValue: Double

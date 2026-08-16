@@ -1,6 +1,7 @@
 import Foundation
 import Metal
 import MetalPerformanceShaders
+import PokerCore
 
 class MetalCompute {
     private let device: MTLDevice

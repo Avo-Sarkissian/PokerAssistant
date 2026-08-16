@@ -1,7 +1,12 @@
 import SwiftUI
+import PokerCore
 
 // Performance Monitor Singleton
-class PerformanceMonitor: ObservableObject {
+//
+// Also the app's `EngineTelemetrySink`: PokerCore has no idea this type exists and
+// reports through a protocol instead, which is what lets the engine be built and run
+// without SwiftUI. `PokerAssistantApp` installs this instance at launch.
+class PerformanceMonitor: ObservableObject, EngineTelemetrySink {
     static let shared = PerformanceMonitor()
     
     @Published var cpuUsage: Double = 0

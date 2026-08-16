@@ -1,4 +1,5 @@
 import SwiftUI
+import PokerCore
 
 struct HandHistoryView: View {
     @EnvironmentObject var gameViewModel: GameViewModel

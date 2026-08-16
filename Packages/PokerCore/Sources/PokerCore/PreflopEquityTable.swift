@@ -8,9 +8,9 @@ import Foundation
 ///
 /// Key format:  "PreflopEq_\(handKey)_\(opponents)_\(range)"
 /// Example key: "PreflopEq_AsKs_1_standard"
-final class PreflopEquityTable {
+public final class PreflopEquityTable {
 
-    static let shared = PreflopEquityTable()
+    public static let shared = PreflopEquityTable()
 
     private let engine = MonteCarloEngine()
     private let defaults = UserDefaults.standard
@@ -41,7 +41,7 @@ final class PreflopEquityTable {
 
     /// Returns a cached preflop equity, or nil if not yet computed.
     /// Call `computeAndCache` asynchronously to populate the cache.
-    func cachedEquity(hand: Hand, opponents: Int, range: OpponentRange.RangeType) -> Double? {
+    public func cachedEquity(hand: Hand, opponents: Int, range: OpponentRange.RangeType) -> Double? {
         guard let key = cacheKey(hand: hand, opponents: opponents, range: range) else { return nil }
         lock.lock(); defer { lock.unlock() }
         if let v = memCache[key] { return v }
@@ -51,7 +51,7 @@ final class PreflopEquityTable {
     }
 
     /// Checks the cache; if missing, runs a fast MC simulation and caches the result.
-    func equity(hand: Hand, opponents: Int, range: OpponentRange.RangeType) async -> Double? {
+    public func equity(hand: Hand, opponents: Int, range: OpponentRange.RangeType) async -> Double? {
         if let cached = cachedEquity(hand: hand, opponents: opponents, range: range) { return cached }
         guard let key = cacheKey(hand: hand, opponents: opponents, range: range) else { return nil }
 
@@ -93,7 +93,7 @@ final class PreflopEquityTable {
 // MARK: - RangeType string identifier for cache keying
 
 extension OpponentRange.RangeType {
-    var cacheIdentifier: String {
+    public var cacheIdentifier: String {
         switch self {
         case .veryTight: return "vt"
         case .tight:     return "t"

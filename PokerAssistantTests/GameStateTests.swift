@@ -1,58 +1,12 @@
 import Testing
 import Foundation
+import PokerCore
+import PokerTestSupport
 @testable import PokerAssistant
 
-// MARK: - Reproducibility
-
-@Suite("Reproducibility", .timeLimit(.minutes(3)))
-struct ReproducibilityTests {
-
-    /// Without a seed the engine is free to differ run to run, but a caller that
-    /// supplies one must get the same number back every time — otherwise no
-    /// regression test can ever pin an equity.
-    @Test("The same seed produces the same equity")
-    func seededRunsAreReproducible() async {
-        let engine = MonteCarloEngine()
-        func run() async -> Double {
-            await engine.simulate(
-                hand: Hand(holeCards: cards("Ad Ac"), communityCards: []),
-                opponents: 3,
-                deadCards: [],
-                iterations: 120_000,
-                opponentRange: .random,
-                confidenceThreshold: 0.0,   // never terminate early
-                maxTimeSeconds: 60,
-                seed: 0xA11CE
-            )
-        }
-        let first = await run()
-        let second = await run()
-
-        #expect(first == second, "seeded runs diverged: \(first) vs \(second)")
-    }
-
-    @Test("Different seeds explore different samples")
-    func differentSeedsDiffer() async {
-        let engine = MonteCarloEngine()
-        func run(seed: UInt64) async -> Double {
-            await engine.simulate(
-                hand: Hand(holeCards: cards("Ad Ac"), communityCards: []),
-                opponents: 3,
-                deadCards: [],
-                iterations: 120_000,
-                opponentRange: .random,
-                confidenceThreshold: 0.0,
-                maxTimeSeconds: 60,
-                seed: seed
-            )
-        }
-        let a = await run(seed: 1)
-        let b = await run(seed: 2)
-
-        #expect(a != b, "two different seeds produced identical output — is the seed used at all?")
-        #expect(abs(a - b) < 0.02, "seeds disagree far more than sampling error allows")
-    }
-}
+// Seeded-run reproducibility moved to `PokerCoreTests` with the engine itself.
+// What is left here needs the app: `Settings` is @AppStorage-backed and the view
+// models are @MainActor types that only exist in the app target.
 
 // MARK: - Hand lifecycle
 
@@ -166,6 +120,84 @@ struct HandLifecycleTests {
 
         settings.smallBlind = 0.25
         #expect(viewModel.getCurrentStateString() != baseline, "small blind is not in the fingerprint")
+    }
+}
+
+// MARK: - Settings → solver
+
+/// `Settings.solverSettings` is the app's only route from its persisted preferences into
+/// the solver. The solver's own suite lives in PokerCore and constructs `SolverSettings`
+/// literally, so it is structurally incapable of noticing a mistake in this mapping:
+/// transposing the two blinds, or dropping the tournament check, leaves all 54 tests
+/// green while the app rounds every raise to the wrong grid, or prices every ICM spot as
+/// a cash game.
+@Suite("Settings reach the solver")
+@MainActor
+struct SolverSettingsMappingTests {
+
+    /// Deliberately asymmetric values: 0.5/1.0 would let a transposition pass.
+    private func settings(smallBlind: Double = 0.25, bigBlind: Double = 2.0) -> Settings {
+        let s = Settings()
+        s.smallBlind = smallBlind
+        s.bigBlind = bigBlind
+        return s
+    }
+
+    @Test("Each blind arrives as itself")
+    func blindsAreNotTransposed() {
+        let snapshot = DefaultsSnapshot()
+        defer { snapshot.restore() }
+
+        let mapped = settings().solverSettings
+
+        #expect(mapped.smallBlind == 0.25, "small blind arrived as \(mapped.smallBlind)")
+        #expect(mapped.bigBlind == 2.0, "big blind arrived as \(mapped.bigBlind)")
+    }
+
+    /// A cash game has no survival premium, whatever the tournament phase happens to be
+    /// left set to.
+    @Test("A cash game carries no ICM pressure, even with a phase selected")
+    func cashGameHasNoICMPressure() {
+        let snapshot = DefaultsSnapshot()
+        defer { snapshot.restore() }
+
+        let s = settings()
+        s.gameMode = .cashGame
+        s.tournamentPhase = .bubble      // the highest-pressure phase there is
+
+        #expect(s.solverSettings.icmPressure == 0,
+                "cash game reported ICM pressure \(s.solverSettings.icmPressure)")
+    }
+
+    /// Every phase must reach the solver at its own pressure. A mapping that always
+    /// returned zero would silently turn tournament mode off.
+    @Test("Every tournament phase reaches the solver at its own pressure",
+          arguments: TournamentPhase.allCases)
+    func tournamentPressureReachesTheSolver(phase: TournamentPhase) {
+        let snapshot = DefaultsSnapshot()
+        defer { snapshot.restore() }
+
+        let s = settings()
+        s.gameMode = .tournament
+        s.tournamentPhase = phase
+
+        #expect(s.solverSettings.icmPressure == phase.icmPressure,
+                "\(phase.rawValue) mapped to \(s.solverSettings.icmPressure), expected \(phase.icmPressure)")
+    }
+
+    /// The bubble is the phase the pressure model exists for; pin that it is non-zero so
+    /// the parameterised test above cannot pass by mapping everything to zero.
+    @Test("The bubble applies real pressure")
+    func bubbleAppliesPressure() {
+        let snapshot = DefaultsSnapshot()
+        defer { snapshot.restore() }
+
+        let s = settings()
+        s.gameMode = .tournament
+        s.tournamentPhase = .bubble
+
+        #expect(s.solverSettings.icmPressure > 0.3,
+                "the bubble reported \(s.solverSettings.icmPressure)")
     }
 }
 

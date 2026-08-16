@@ -1,4 +1,5 @@
 import SwiftUI
+import PokerCore
 
 struct MainGameView: View {
     @EnvironmentObject var gameViewModel: GameViewModel

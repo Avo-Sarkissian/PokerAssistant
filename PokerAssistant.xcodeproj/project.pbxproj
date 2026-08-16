@@ -7,14 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		D360702D2F04F26C00751467 /* OpponentRange.swift in Sources */ = {isa = PBXBuildFile; fileRef = D360702C2F04F26C00751467 /* OpponentRange.swift */; };
 		D360702F2F079B2300751467 /* PokerShaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = D360702E2F079B2300751467 /* PokerShaders.metal */; };
 		D3A410202E357FA50057378A /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A4101F2E357FA50057378A /* ContentView.swift */; };
 		D3A4104C2E3582790057378A /* PokerAssistantApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A4104B2E3582790057378A /* PokerAssistantApp.swift */; };
-		D3A4104E2E3583AD0057378A /* Card.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A4104D2E3583AD0057378A /* Card.swift */; };
-		D3A410502E3583C00057378A /* Hand.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A4104F2E3583C00057378A /* Hand.swift */; };
 		D3A410522E3583CD0057378A /* GameState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A410512E3583CD0057378A /* GameState.swift */; };
-		D3A410542E3583D80057378A /* CalculationResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A410532E3583D80057378A /* CalculationResult.swift */; };
 		D3A410562E3583E60057378A /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A410552E3583E60057378A /* Settings.swift */; };
 		D3A410582E3583F30057378A /* MainGameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A410572E3583F30057378A /* MainGameView.swift */; };
 		D3A4105A2E3584000057378A /* CardSelectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A410592E3584000057378A /* CardSelectorView.swift */; };
@@ -25,19 +21,14 @@
 		D3A410642E35844C0057378A /* GameViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A410632E35844C0057378A /* GameViewModel.swift */; };
 		D3A410662E35845A0057378A /* CalculationViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A410652E35845A0057378A /* CalculationViewModel.swift */; };
 		D3A410682E3584700057378A /* EquityCalculator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A410672E3584700057378A /* EquityCalculator.swift */; };
-		D3A4106C2E3584890057378A /* MonteCarloEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A4106B2E3584890057378A /* MonteCarloEngine.swift */; };
 		D3A4106E2E3584940057378A /* MetalCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A4106D2E3584940057378A /* MetalCompute.swift */; };
-		D3A410702E3584A20057378A /* ExploitativeSolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A4106F2E3584A20057378A /* ExploitativeSolver.swift */; };
-		D3A410722E3584AD0057378A /* Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A410712E3584AD0057378A /* Extensions.swift */; };
 		D3A410742E3584B60057378A /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A410732E3584B60057378A /* Constants.swift */; };
 		D3A4107A2E3792E50057378A /* PerformanceMonitorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A410792E3792E50057378A /* PerformanceMonitorView.swift */; };
-		D3A4109B2E36A0010057378A /* PotEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A4109A2E36A0010057378A /* PotEntry.swift */; };
 		D3CB6B3E2EFA628700F86392 /* PerformanceMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3CB6B3D2EFA627600F86392 /* PerformanceMonitor.swift */; };
-		D3EE00012F100001DEADBEEF /* FastHandEvaluator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3EE00002F100001DEADBEEF /* FastHandEvaluator.swift */; };
-		D3EE00032F100003DEADBEEF /* ExactEnumerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3EE00022F100003DEADBEEF /* ExactEnumerator.swift */; };
-		D3EE00052F200001DEADBEEF /* HandHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3EE00042F200001DEADBEEF /* HandHistory.swift */; };
-		D3EE00072F200002DEADBEEF /* PreflopEquityTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3EE00062F200002DEADBEEF /* PreflopEquityTable.swift */; };
 		D3EE00092F200003DEADBEEF /* HandHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3EE00082F200003DEADBEEF /* HandHistoryView.swift */; };
+		D3F000042F300004DEADBEEF /* PokerCore in Frameworks */ = {isa = PBXBuildFile; productRef = D3F000012F300001DEADBEEF /* PokerCore */; };
+		D3F000052F300005DEADBEEF /* PokerCore in Frameworks */ = {isa = PBXBuildFile; productRef = D3F000022F300002DEADBEEF /* PokerCore */; };
+		D3F000062F300006DEADBEEF /* PokerTestSupport in Frameworks */ = {isa = PBXBuildFile; productRef = D3F000032F300003DEADBEEF /* PokerTestSupport */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -58,17 +49,13 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		D360702C2F04F26C00751467 /* OpponentRange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpponentRange.swift; sourceTree = "<group>"; };
 		D360702E2F079B2300751467 /* PokerShaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = PokerShaders.metal; sourceTree = "<group>"; };
 		D3A4101A2E357FA50057378A /* PokerAssistant.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PokerAssistant.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D3A4101F2E357FA50057378A /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		D3A410272E357FA60057378A /* PokerAssistantTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PokerAssistantTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		D3A410312E357FA60057378A /* PokerAssistantUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PokerAssistantUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		D3A4104B2E3582790057378A /* PokerAssistantApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PokerAssistantApp.swift; sourceTree = "<group>"; };
-		D3A4104D2E3583AD0057378A /* Card.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Card.swift; sourceTree = "<group>"; };
-		D3A4104F2E3583C00057378A /* Hand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Hand.swift; sourceTree = "<group>"; };
 		D3A410512E3583CD0057378A /* GameState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameState.swift; sourceTree = "<group>"; };
-		D3A410532E3583D80057378A /* CalculationResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalculationResult.swift; sourceTree = "<group>"; };
 		D3A410552E3583E60057378A /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings.swift; sourceTree = "<group>"; };
 		D3A410572E3583F30057378A /* MainGameView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainGameView.swift; sourceTree = "<group>"; };
 		D3A410592E3584000057378A /* CardSelectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardSelectorView.swift; sourceTree = "<group>"; };
@@ -79,18 +66,10 @@
 		D3A410632E35844C0057378A /* GameViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameViewModel.swift; sourceTree = "<group>"; };
 		D3A410652E35845A0057378A /* CalculationViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalculationViewModel.swift; sourceTree = "<group>"; };
 		D3A410672E3584700057378A /* EquityCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EquityCalculator.swift; sourceTree = "<group>"; };
-		D3A4106B2E3584890057378A /* MonteCarloEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonteCarloEngine.swift; sourceTree = "<group>"; };
 		D3A4106D2E3584940057378A /* MetalCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalCompute.swift; sourceTree = "<group>"; };
-		D3A4106F2E3584A20057378A /* ExploitativeSolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExploitativeSolver.swift; sourceTree = "<group>"; };
-		D3A410712E3584AD0057378A /* Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Extensions.swift; sourceTree = "<group>"; };
 		D3A410732E3584B60057378A /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
 		D3A410792E3792E50057378A /* PerformanceMonitorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceMonitorView.swift; sourceTree = "<group>"; };
-		D3A4109A2E36A0010057378A /* PotEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PotEntry.swift; sourceTree = "<group>"; };
 		D3CB6B3D2EFA627600F86392 /* PerformanceMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceMonitor.swift; sourceTree = "<group>"; };
-		D3EE00002F100001DEADBEEF /* FastHandEvaluator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FastHandEvaluator.swift; sourceTree = "<group>"; };
-		D3EE00022F100003DEADBEEF /* ExactEnumerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExactEnumerator.swift; sourceTree = "<group>"; };
-		D3EE00042F200001DEADBEEF /* HandHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HandHistory.swift; sourceTree = "<group>"; };
-		D3EE00062F200002DEADBEEF /* PreflopEquityTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreflopEquityTable.swift; sourceTree = "<group>"; };
 		D3EE00082F200003DEADBEEF /* HandHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HandHistoryView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -117,6 +96,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D3F000042F300004DEADBEEF /* PokerCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -124,6 +104,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D3F000052F300005DEADBEEF /* PokerCore in Frameworks */,
+				D3F000062F300006DEADBEEF /* PokerTestSupport in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -176,13 +158,8 @@
 		D3A410452E3581CF0057378A /* Models */ = {
 			isa = PBXGroup;
 			children = (
-				D3A4109A2E36A0010057378A /* PotEntry.swift */,
-				D3A4104D2E3583AD0057378A /* Card.swift */,
-				D3A4104F2E3583C00057378A /* Hand.swift */,
 				D3A410512E3583CD0057378A /* GameState.swift */,
-				D3A410532E3583D80057378A /* CalculationResult.swift */,
 				D3A410552E3583E60057378A /* Settings.swift */,
-				D3EE00042F200001DEADBEEF /* HandHistory.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -215,15 +192,9 @@
 			isa = PBXGroup;
 			children = (
 				D360702E2F079B2300751467 /* PokerShaders.metal */,
-				D360702C2F04F26C00751467 /* OpponentRange.swift */,
 				D3CB6B3D2EFA627600F86392 /* PerformanceMonitor.swift */,
 				D3A410672E3584700057378A /* EquityCalculator.swift */,
-				D3A4106B2E3584890057378A /* MonteCarloEngine.swift */,
 				D3A4106D2E3584940057378A /* MetalCompute.swift */,
-				D3A4106F2E3584A20057378A /* ExploitativeSolver.swift */,
-				D3EE00002F100001DEADBEEF /* FastHandEvaluator.swift */,
-				D3EE00022F100003DEADBEEF /* ExactEnumerator.swift */,
-				D3EE00062F200002DEADBEEF /* PreflopEquityTable.swift */,
 			);
 			path = Engine;
 			sourceTree = "<group>";
@@ -231,7 +202,6 @@
 		D3A410492E3581F50057378A /* Utils */ = {
 			isa = PBXGroup;
 			children = (
-				D3A410712E3584AD0057378A /* Extensions.swift */,
 				D3A410732E3584B60057378A /* Constants.swift */,
 			);
 			path = Utils;
@@ -264,6 +234,7 @@
 			);
 			name = PokerAssistant;
 			packageProductDependencies = (
+				D3F000012F300001DEADBEEF /* PokerCore */,
 			);
 			productName = PokerAssistant;
 			productReference = D3A4101A2E357FA50057378A /* PokerAssistant.app */;
@@ -287,6 +258,8 @@
 			);
 			name = PokerAssistantTests;
 			packageProductDependencies = (
+				D3F000022F300002DEADBEEF /* PokerCore */,
+				D3F000032F300003DEADBEEF /* PokerTestSupport */,
 			);
 			productName = PokerAssistantTests;
 			productReference = D3A410272E357FA60057378A /* PokerAssistantTests.xctest */;
@@ -347,6 +320,9 @@
 			);
 			mainGroup = D3A410112E357FA50057378A;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				D3F000002F300000DEADBEEF /* XCLocalSwiftPackageReference "Packages/PokerCore" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = D3A4101B2E357FA50057378A /* Products */;
 			projectDirPath = "";
@@ -388,24 +364,16 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				D3A4109B2E36A0010057378A /* PotEntry.swift in Sources */,
-				D3A410542E3583D80057378A /* CalculationResult.swift in Sources */,
 				D3A410742E3584B60057378A /* Constants.swift in Sources */,
 				D3A4106E2E3584940057378A /* MetalCompute.swift in Sources */,
-				D3A410502E3583C00057378A /* Hand.swift in Sources */,
 				D3A4105E2E3584230057378A /* ResultView.swift in Sources */,
 				D3A410202E357FA50057378A /* ContentView.swift in Sources */,
 				D3A4107A2E3792E50057378A /* PerformanceMonitorView.swift in Sources */,
-				D3A4106C2E3584890057378A /* MonteCarloEngine.swift in Sources */,
 				D3A410622E35843F0057378A /* DeadCardsView.swift in Sources */,
-				D360702D2F04F26C00751467 /* OpponentRange.swift in Sources */,
 				D3A410522E3583CD0057378A /* GameState.swift in Sources */,
 				D3A410642E35844C0057378A /* GameViewModel.swift in Sources */,
 				D3CB6B3E2EFA628700F86392 /* PerformanceMonitor.swift in Sources */,
 				D3A410562E3583E60057378A /* Settings.swift in Sources */,
-				D3A410702E3584A20057378A /* ExploitativeSolver.swift in Sources */,
-				D3A4104E2E3583AD0057378A /* Card.swift in Sources */,
-				D3A410722E3584AD0057378A /* Extensions.swift in Sources */,
 				D3A4104C2E3582790057378A /* PokerAssistantApp.swift in Sources */,
 				D360702F2F079B2300751467 /* PokerShaders.metal in Sources */,
 				D3A4105C2E35840E0057378A /* CalculationProgressView.swift in Sources */,
@@ -414,10 +382,6 @@
 				D3A410662E35845A0057378A /* CalculationViewModel.swift in Sources */,
 				D3A4105A2E3584000057378A /* CardSelectorView.swift in Sources */,
 				D3A410582E3583F30057378A /* MainGameView.swift in Sources */,
-				D3EE00012F100001DEADBEEF /* FastHandEvaluator.swift in Sources */,
-				D3EE00032F100003DEADBEEF /* ExactEnumerator.swift in Sources */,
-				D3EE00052F200001DEADBEEF /* HandHistory.swift in Sources */,
-				D3EE00072F200002DEADBEEF /* PreflopEquityTable.swift in Sources */,
 				D3EE00092F200003DEADBEEF /* HandHistoryView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -585,9 +549,9 @@
 				DEVELOPMENT_TEAM = H74P36C4P7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -614,9 +578,9 @@
 				DEVELOPMENT_TEAM = H74P36C4P7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -745,6 +709,28 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		D3F000002F300000DEADBEEF /* XCLocalSwiftPackageReference "Packages/PokerCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/PokerCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		D3F000012F300001DEADBEEF /* PokerCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = PokerCore;
+		};
+		D3F000022F300002DEADBEEF /* PokerCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = PokerCore;
+		};
+		D3F000032F300003DEADBEEF /* PokerTestSupport */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = PokerTestSupport;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = D3A410122E357FA50057378A /* Project object */;
 }

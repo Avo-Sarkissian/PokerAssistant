@@ -3,26 +3,26 @@ import Foundation
 // MARK: - Hand Record
 
 /// A snapshot of one analyzed hand and its recommended action.
-struct HandRecord: Identifiable, Codable {
-    let id: UUID
-    let timestamp: Date
+public struct HandRecord: Identifiable, Codable {
+    public let id: UUID
+    public let timestamp: Date
 
     // Cards
-    let holeCards: [String]       // displayString, e.g. ["A♠", "K♥"]
-    let communityCards: [String]
+    public let holeCards: [String]       // displayString, e.g. ["A♠", "K♥"]
+    public let communityCards: [String]
 
     // Situation
-    let street: String
-    let position: String
-    let potSize: Double
-    let toCall: Double
+    public let street: String
+    public let position: String
+    public let potSize: Double
+    public let toCall: Double
 
     // Result
-    let equity: Double
-    let recommendedAction: String  // "Fold", "Call", "Raise $X.XX"
-    let reasoning: String
+    public let equity: Double
+    public let recommendedAction: String  // "Fold", "Call", "Raise $X.XX"
+    public let reasoning: String
 
-    init(
+    public init(
         holeCards: [Card],
         communityCards: [Card],
         street: Street,
@@ -51,31 +51,31 @@ struct HandRecord: Identifiable, Codable {
         }
     }
 
-    var equityPercent: String { String(format: "%.1f%%", equity * 100) }
+    public var equityPercent: String { String(format: "%.1f%%", equity * 100) }
 }
 
 // MARK: - Hand Session
 
 /// Groups hand records from a single playing session (app launch).
-struct HandSession: Identifiable, Codable {
-    let id: UUID
-    let startedAt: Date
-    var records: [HandRecord]
+public struct HandSession: Identifiable, Codable {
+    public let id: UUID
+    public let startedAt: Date
+    public var records: [HandRecord]
 
-    init() {
+    public init() {
         self.id        = UUID()
         self.startedAt = Date()
         self.records   = []
     }
 
-    var handCount: Int { records.count }
+    public var handCount: Int { records.count }
 
-    var averageEquity: Double {
+    public var averageEquity: Double {
         guard !records.isEmpty else { return 0 }
         return records.map(\.equity).reduce(0, +) / Double(records.count)
     }
 
-    var winRateByAction: (folds: Int, calls: Int, raises: Int) {
+    public var winRateByAction: (folds: Int, calls: Int, raises: Int) {
         var f = 0, c = 0, r = 0
         for rec in records {
             if rec.recommendedAction == "Fold"  { f += 1 }
@@ -86,7 +86,7 @@ struct HandSession: Identifiable, Codable {
     }
 
     /// Display title: "Session – Mar 14"
-    var displayTitle: String {
+    public var displayTitle: String {
         let fmt = DateFormatter()
         fmt.dateStyle = .medium
         fmt.timeStyle = .short

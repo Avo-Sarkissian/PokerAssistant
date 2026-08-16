@@ -2,13 +2,24 @@
 
 Continuing a correctness overhaul of PokerAssistant, a Texas Hold'em decision-assistant
 iOS app (SwiftUI, Metal GPU compute). Work so far is on branch
-`fix/evaluator-correctness` — 7 commits, nothing pushed, `main` untouched.
+`fix/evaluator-correctness` — 9 commits, nothing pushed, `main` untouched.
+
+## Run the tests with `./scripts/test`
+
+**Not** `xcodebuild -scheme PokerAssistant test`, and **not** Cmd-U. The engine now lives
+in `Packages/PokerCore` and its tests are a SwiftPM test target, which Xcode will not run
+from a project-based scheme — an explicit `TestableReference` for it is silently dropped
+rather than rejected, and no `PokerCoreTests` scheme exists to select. So the Xcode test
+action covers **12 of the 58 tests**. `./scripts/test` runs both suites; CI runs the same
+two steps. `./scripts/test core` is the fast loop: no simulator, and the solver, pot and
+range suites finish in 0.04s.
 
 ## Where things stand
 
 An exhaustive audit produced 217 verified findings, consolidated into a ranked
-95-item backlog. **29 items are shipped, 1 withdrawn.** The test suite went from a
-single empty stub to **80 cases across 17 suites, all passing.**
+95-item backlog. **30 items are shipped, 1 withdrawn.** The test suite went from a
+single empty stub to **58 cases across 18 suites, all passing** (46 in PokerCore,
+12 in the app target).
 
 - Audit report: https://claude.ai/code/artifact/0b6a3220-8588-499e-beb4-655af33f4a71
 - Ranked backlog: https://claude.ai/code/artifact/c3758e78-e7b6-46ec-8b1e-6ee4b26937bd
@@ -25,33 +36,33 @@ Shipped, by commit:
 | `78b685d` | Range-conditioned exact enumeration (capability); deleted a heap-corrupting debug static |
 | `2abc163` | Restored raising (a regression); gated postflop range conditioning |
 | `f39443d` | CI; App Store blockers — icon, `NavigationStack`, privacy manifest, encryption flag, deployment target 17.0, dark-mode preference |
+| _(this one)_ | `Packages/PokerCore` extracted (#83); seeded runs made reproducible under load; `scripts/test` |
 
 Equity is now within **0.20 percentage points** of published values where the exact
 path runs, down from being wrong by up to 36.
 
 ## Do this next, in order
 
-**1. Extract `Packages/PokerCore` (backlog #83).** Highest leverage available. A scratch
-package built and ran a real enumeration test in **13.7s build + 0.24s test** against the
-current **116s simulator cycle**. Everything downstream is gated on test runs, so this
-roughly 10×s how much can be done per session. Move Card, Hand, HandHistory,
-CalculationResult, FastHandEvaluator, ExactEnumerator, OpponentRange, PreflopEquityTable,
-MonteCarloEngine. Only two things block it: `Suit.suitIndex` lives in a `import SwiftUI`
-file (`Utils/Extensions.swift`), and `ExploitativeSolver.solve` takes `Settings`.
-
-**2. Batch A — guards.** All confirmed absent by grep, all small:
+**1. Batch A — guards.** All confirmed absent by grep, all small:
 - `calculateCallEV` counts villain's *uncalled* excess as contested, overstating a
   short-stack call up to 7× (pot 150 / call 140 / stack 12 / equity 0.95 reports +141.90
   against a true +20.30). Fix: pot term becomes `potSize - (toCall - cost) + cost`.
-- `Card` still `==`/hashes by random UUID (`Models/Card.swift:43`); every engine
-  hand-rolls a 0–51 index workaround.
+- `Card` still `==`/hashes by random UUID (now `Packages/PokerCore/Sources/PokerCore/Card.swift`);
+  every engine hand-rolls a 0–51 index workaround. It also breaks the *app*, not just the
+  engine: `GameState.availableCards` filters the deck with a `Set<Card>` of used cards, so
+  the filter never matches and the card selector offers cards already on the table.
 - No duplicate-card validation in `EquityCalculator.calculateDeep` — duplicate hole
-  cards return a confident 76.82%.
-- `ExactEnumerator` has no `available.count` guards: 45 dead cards traps, 44 silently
-  returns 0.0% as a valid answer. `MonteCarloEngine.swift:180` has exactly the guard it
-  needs.
-- Metal kernel has no `gid` bounds guard, so every dispatch writes past the results
-  buffer (survives only because Metal page-rounds allocations).
+  cards return a confident 76.82%. Trivial once `Card` hashes by rank+suit.
+- `ExactEnumerator` has no `available.count` guards: with 45 dead cards all three entry
+  points index `available[0]` before any count check and trap. (The "44 returns 0.0%"
+  half is already fixed — `guard total > 0` returns nil.) `MonteCarloEngine`'s
+  `guard availableCount >= neededCards` is the model.
+- Metal kernel has no `gid` bounds guard, so every dispatch where `totalThreads` is not a
+  multiple of 256 writes past both the results and seeds buffers (survives only because
+  Metal page-rounds allocations). The kernel cannot derive the real count —
+  `params->iterations / 1000` does not reproduce `max(1, iterations/1000)` — so add a
+  `threadCount` field to the **end** of both `SimulationParams` structs, keeping the
+  existing field offsets untouched.
 
 **3. Batch D — the solver, finished.** Items 21, 23, 24, 25, 28, 29, plus:
 - `HandStrength`'s absolute cutoffs (0.85/0.70/0.50/0.35) were calibrated against
@@ -66,14 +77,26 @@ board-conditioned continuation model. See the trap below before starting.
 
 ## Traps that already cost time
 
+- **`xcodebuild -scheme PokerAssistant test` no longer means "the test suite."** It runs
+  12 of 58. Use `./scripts/test`. Nothing fails or warns when you get this wrong — the
+  Xcode test action just reports 12 passing tests. See the note at the top.
+- **Anything new in `Packages/PokerCore` is picked up automatically** (SwiftPM globs the
+  Sources directory) — but it must be `public` to be visible from the app, and the
+  compiler will not remind you until a call site fails.
 - **New files under `Models/`, `Engine/`, `Views/` need four `project.pbxproj` entries**
   (PBXFileReference, PBXBuildFile, group children, Sources phase) or they compile to
   nothing, silently. `PokerAssistantTests/` and `PokerAssistant/` are
   `PBXFileSystemSynchronizedRootGroup`s and *do* auto-include — an empty `Sources` phase
-  there is normal, not broken.
-- **The test host is the app and `Settings` is all `@AppStorage`**, so tests leak blinds
-  and player counts into the shipping app's `UserDefaults`. Use the existing
-  `DefaultsSnapshot` helper in `GameStateTests.swift`.
+  there is normal, not broken. Prefer putting new engine code in the package instead.
+- **The app test host is the app and `Settings` is all `@AppStorage`**, so app-target
+  tests leak blinds and player counts into the shipping app's `UserDefaults`. Use the
+  existing `DefaultsSnapshot` helper in `GameStateTests.swift`. Package tests are free of
+  this — that is one reason the solver's suite moved.
+- **The package cannot see `Settings`, and that cuts both ways.** `Settings.solverSettings`
+  is the only bridge from the app's persisted blinds and ICM phase into the solver, and no
+  package test can observe it. It is covered by `SolverSettingsMappingTests` in the app
+  target; keep it that way, because transposing the two blinds there leaves every other
+  test green.
 - **Pick test cases that stress the model, not confirm it.** This went wrong twice:
   a range-monotonicity test used aces (the one hand where a tighter range *helps*), and
   a postflop range test used KJo (which behaves correctly) while 33 on 8-7-6-2-4 goes
@@ -92,13 +115,23 @@ board-conditioned continuation model. See the trap below before starting.
 - **TDD, strictly.** Write the test, watch it fail for the right reason, then implement.
   Several of these defects existed because someone fixed a bug in one file and nothing
   compared it to the other two.
+  Where the code already exists and is correct — a mapping, an adapter — the honest
+  substitute is to write the test, *mutate the production code to break it*, watch it
+  fail, then revert. `SolverSettingsMappingTests` was built that way.
 - **Run an adversarial review of your own commits before declaring a batch done.** Doing
   this found three criticals that had already shipped, including one that silently
-  disabled every raise recommendation. Assume the same of new work.
+  disabled every raise recommendation. On the PokerCore extraction it found that the
+  Xcode test action had quietly stopped covering 46 of 58 tests, and that the new
+  `Settings → SolverSettings` mapping had no test at all. Assume the same of new work.
 - **You may gate or revert.** The right call on the range work was "don't ship the routing
   yet." Prefer that to forcing something through to call it finished.
-- Gate each batch on the full suite plus a real simulator launch; `git commit` per batch
+- Gate each batch on `./scripts/test` plus a real simulator launch; `git commit` per batch
   with a message explaining *why*, not just what. Don't push.
+
+## Known dead code (not worth its own commit, but don't be misled)
+
+- `Utils/Constants.swift` — nothing references `Constants.*` anywhere. Predates this
+  work; deleting it needs the usual four `project.pbxproj` removals.
 
 ## Biggest open risk
 

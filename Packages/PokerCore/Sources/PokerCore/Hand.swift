@@ -1,18 +1,23 @@
 import Foundation
 
-struct Hand {
-    let holeCards: [Card]
-    let communityCards: [Card]
-    
-    var allCards: [Card] {
+public struct Hand: Sendable {
+    public let holeCards: [Card]
+    public let communityCards: [Card]
+
+    public init(holeCards: [Card], communityCards: [Card]) {
+        self.holeCards = holeCards
+        self.communityCards = communityCards
+    }
+
+    public var allCards: [Card] {
         holeCards + communityCards
     }
-    
-    var isValid: Bool {
+
+    public var isValid: Bool {
         holeCards.count == 2 && communityCards.count <= 5
     }
-    
-    var street: Street {
+
+    public var street: Street {
         switch communityCards.count {
         case 0: return .preflop
         case 3: return .flop
@@ -23,7 +28,7 @@ struct Hand {
     }
 }
 
-enum Street: String, CaseIterable {
+public enum Street: String, CaseIterable, Sendable {
     case preflop = "Pre-flop"
     case flop = "Flop"
     case turn = "Turn"

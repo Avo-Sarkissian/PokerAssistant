@@ -1,5 +1,5 @@
 import Foundation
-@testable import PokerAssistant
+import PokerCore
 
 /// An independent, deliberately slow, definition-based 7-card hand evaluator.
 ///
@@ -9,30 +9,35 @@ import Foundation
 /// evaluator ever disagrees with this, the production evaluator is wrong.
 ///
 /// Correctness here matters more than speed, so nothing is optimised.
-struct ReferenceHandValue: Comparable {
+public struct ReferenceHandValue: Comparable {
 
     /// 8 straight flush · 7 quads · 6 full house · 5 flush
     /// 4 straight · 3 trips · 2 two pair · 1 pair · 0 high card
-    let category: Int
+    public let category: Int
 
     /// Rank values in descending order of significance, already resolved for the category.
-    let tiebreak: [Int]
+    public let tiebreak: [Int]
 
-    static func == (l: ReferenceHandValue, r: ReferenceHandValue) -> Bool {
+    public init(category: Int, tiebreak: [Int]) {
+        self.category = category
+        self.tiebreak = tiebreak
+    }
+
+    public static func == (l: ReferenceHandValue, r: ReferenceHandValue) -> Bool {
         l.category == r.category && l.tiebreak == r.tiebreak
     }
 
-    static func < (l: ReferenceHandValue, r: ReferenceHandValue) -> Bool {
+    public static func < (l: ReferenceHandValue, r: ReferenceHandValue) -> Bool {
         if l.category != r.category { return l.category < r.category }
         for (a, b) in zip(l.tiebreak, r.tiebreak) where a != b { return a < b }
         return false
     }
 }
 
-enum ReferenceEvaluator {
+public enum ReferenceEvaluator {
 
     /// Classify exactly five cards.
-    static func classify5(_ cards: [Card]) -> ReferenceHandValue {
+    public static func classify5(_ cards: [Card]) -> ReferenceHandValue {
         precondition(cards.count == 5)
 
         let ranks = cards.map { $0.rank.rawValue }
@@ -88,7 +93,7 @@ enum ReferenceEvaluator {
     }
 
     /// Best five-card value available from seven cards.
-    static func evaluate7(_ cards: [Card]) -> ReferenceHandValue {
+    public static func evaluate7(_ cards: [Card]) -> ReferenceHandValue {
         precondition(cards.count == 7)
         var best: ReferenceHandValue? = nil
         for skipA in 0..<6 {
@@ -107,7 +112,7 @@ enum ReferenceEvaluator {
 // MARK: - Test card helpers
 
 /// Parse a card from the compact "As", "Th", "2c" notation used throughout these tests.
-func card(_ text: String) -> Card {
+public func card(_ text: String) -> Card {
     let rankMap: [Character: Rank] = [
         "2": .two, "3": .three, "4": .four, "5": .five, "6": .six, "7": .seven,
         "8": .eight, "9": .nine, "T": .ten, "J": .jack, "Q": .queen, "K": .king, "A": .ace
@@ -123,15 +128,15 @@ func card(_ text: String) -> Card {
 }
 
 /// Parse a space-separated list of cards, e.g. `cards("As Kh 2c")`.
-func cards(_ text: String) -> [Card] {
+public func cards(_ text: String) -> [Card] {
     text.split(separator: " ").map { card(String($0)) }
 }
 
 /// A small, seedable generator so evaluator tests are reproducible run to run.
-struct SeededGenerator: RandomNumberGenerator {
+public struct SeededGenerator: RandomNumberGenerator {
     private var state: UInt64
-    init(seed: UInt64) { self.state = seed &* 6364136223846793005 &+ 1442695040888963407 }
-    mutating func next() -> UInt64 {
+    public init(seed: UInt64) { self.state = seed &* 6364136223846793005 &+ 1442695040888963407 }
+    public mutating func next() -> UInt64 {
         state = state &+ 0x9E3779B97F4A7C15
         var z = state
         z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
