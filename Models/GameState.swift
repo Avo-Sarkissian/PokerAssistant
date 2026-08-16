@@ -6,6 +6,12 @@ class GameState: ObservableObject {
     @Published var communityCards: [Card?] = [nil, nil, nil, nil, nil]
     @Published var deadCards: Set<Card> = []
     @Published var stack: Double = 20
+
+    /// The largest stack hero can actually be called by. Commitment decisions turn on
+    /// the effective stack, not hero's own — and fold equity does not exist against a
+    /// player who is already all in.
+    @Published var villainStack: Double = 20
+
     @Published var position: String = "BTN"  // Track position for solver
     @Published var opponentStyle: OpponentStyle = .unknown
 
@@ -31,9 +37,14 @@ class GameState: ObservableObject {
     
     @Published var bigBlind: Double = 1.0
     
+    /// Hero's stack measured in big blinds (a display figure).
     var effectiveStack: Double {
         stack / bigBlind
     }
+
+    /// The stack that actually governs commitment: neither player can win or lose more
+    /// than the smaller of the two.
+    var effectiveStackChips: Double { min(stack, villainStack) }
     
     var usedCards: Set<Card> {
         var used = deadCards
@@ -73,6 +84,7 @@ class GameState: ObservableObject {
         position = "BTN"
         opponentStyle = .unknown
         self.bigBlind = bigBlind
+        self.villainStack = stack
         self.playersInHand = max(2, playersInHand)
         potSize = smallBlind + bigBlind
         toCall = bigBlind          // the button owes the big blind to enter
@@ -95,6 +107,7 @@ struct GameStateCopy: Sendable {
     let communityCards: [Card?]
     let deadCards: Set<Card>
     let stack: Double
+    let villainStack: Double
     let position: String
     let potSize: Double
     let toCall: Double
@@ -105,11 +118,15 @@ struct GameStateCopy: Sendable {
     /// Opponents hero is actually up against right now.
     var opponentCount: Int { max(1, playersInHand - 1) }
 
+    /// Neither player can win or lose more than the smaller stack.
+    var effectiveStackChips: Double { min(stack, villainStack) }
+
     init(from gameState: GameState) {
         self.holeCards = gameState.holeCards
         self.communityCards = gameState.communityCards
         self.deadCards = gameState.deadCards
         self.stack = gameState.stack
+        self.villainStack = gameState.villainStack
         self.position = gameState.position
         self.potSize = gameState.potSize
         self.toCall = gameState.toCall
