@@ -33,11 +33,13 @@ class CalculationViewModel: ObservableObject {
             // already inside — the range thresholds are calibrated on "% of pot".
             let entry = PotEntry(potBeforeBet: gameState.potSize - gameState.toCall,
                                  toCall: gameState.toCall)
-            let potRelativeBet = entry.betFractionOfPotBeforeBet
+            // Preflop the pot is only the blinds, so the read is in blinds instead — the
+            // same figure the solver uses, from the same helper.
             opponentRange = OpponentRange.rangeFromAction(
-                potRelativeBet: potRelativeBet,
-                street: gameState.currentStreet,
-                isRaise: true
+                potRelativeBet: entry.betFractionOfPotBeforeBet,
+                villainWagerInBigBlinds: gameState.villainWagerInBigBlinds(
+                    smallBlind: settings.smallBlind),
+                street: gameState.currentStreet
             )
         } else {
             opponentRange = .random

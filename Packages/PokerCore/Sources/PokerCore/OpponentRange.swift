@@ -15,13 +15,9 @@ public struct OpponentRange {
         public var percentile: Double { rawValue }
     }
 
-    /// Hand strength rankings (0-168, lower = stronger)
-    /// Based on preflop all-in equity vs random hands
-    /// Format: (rank1, rank2, suited) -> strength index
-    private static let handRankings: [String: Int] = {
-        // Top 169 hands ranked by preflop equity
-        // AA=0, KK=1, ..., 72o=168
-        let rankedHands = [
+    /// The 169 starting-hand classes in strength order, by preflop all-in equity against
+    /// a random hand. AA=0, KK=1, ..., 72o=168; lower is stronger.
+    private static let rankedHands: [String] = [
             // Tier 1: Premium (0-4)
             "AA", "KK", "QQ", "AKs", "JJ",
             // Tier 2: Strong (5-12)
@@ -45,13 +41,35 @@ public struct OpponentRange {
             "T7o", "J5o", "Q2o", "64o", "72s", "62s", "J4o", "85o", "T6o", "53o", "J3o", "95o", "43o",
             "J2o", "74o", "T5o", "92o", "63o", "84o", "T4o", "42o", "T3o", "52o", "73o", "T2o", "62o",
             "94o", "82o", "93o", "32o", "83o", "72o"
-        ]
+    ]
 
+    private static let handRankings: [String: Int] = {
         var rankings: [String: Int] = [:]
         for (index, hand) in rankedHands.enumerated() {
             rankings[hand] = index
         }
         return rankings
+    }()
+
+    /// Every two-card combination in the deck: 13 pairs x 6, 78 suited x 4, 78 offsuit x 12.
+    static let totalCombinations = 1326
+
+    /// Combinations contained in the top *n* hand classes, for every n.
+    ///
+    /// A range's name is a promise about how much of the deck it holds, and that promise
+    /// is about combinations, not classes. The two are very different: a pair is 6
+    /// combinations, a suited hand 4, an offsuit hand 12. Taking the top 20% of the 169
+    /// *classes* takes mostly pairs and suited hands — the combo-poor ones — so the range
+    /// calling itself "top 20%" held 15.5% of the deck. Measured across the tiers, every
+    /// name overstated its width by a fifth to a third: 0.20 -> 0.155, 0.35 -> 0.262,
+    /// 0.50 -> 0.388, 0.70 -> 0.593.
+    private static let cumulativeCombinations: [Int] = {
+        var running = 0
+        return rankedHands.map { hand in
+            // "AA" is a pair, "AKs" suited, "AKo" offsuit.
+            running += hand.count == 2 ? 6 : (hand.hasSuffix("s") ? 4 : 12)
+            return running
+        }
     }()
 
     /// Convert two cards to canonical hand string
@@ -79,36 +97,61 @@ public struct OpponentRange {
         return handRankings[hand] ?? 168
     }
 
-    /// Check if hand is within range
+    /// Whether a hand is inside a range, measured by combinations rather than by hand
+    /// classes — see `cumulativeCombinations` for why the two disagree.
     public static func isHandInRange(_ card1: Card, _ card2: Card, range: RangeType) -> Bool {
+        guard range != .random else { return true }
         let strength = handStrength(card1, card2)
-        let threshold = Int(Double(169) * range.percentile)
-        return strength < threshold
+        guard strength < cumulativeCombinations.count else { return false }
+        return Double(cumulativeCombinations[strength])
+            <= range.percentile * Double(totalCombinations)
     }
 
-    /// Determine opponent range based on their action
+    /// Read villain's preflop range from the size of their wager, in big blinds.
+    ///
+    /// Preflop is measured in blinds rather than in fractions of the pot, because
+    /// preflop the pot *is* the blinds: the big blind alone is twice the 0.5bb sitting
+    /// in front of the button, so a pot-relative read saturates before anyone has acted.
+    /// Every unopened button inferred `.veryTight` — a 3-bet range read off nobody doing
+    /// anything — and every genuine raise collapsed into that same tier, discarding the
+    /// distinction between an open, a 3-bet and a 4-bet entirely.
+    ///
+    /// `wager` is villain's total contribution to the street, which is what hero must
+    /// reach to call: whatever hero has already posted, plus what they still owe.
+    ///
+    /// The boundaries are the standard lines rather than tuned values: a limp is one
+    /// blind, opens run 2–4bb, 3-bets 6–12bb, 4-bets 20bb and up.
+    public static func preflopRange(villainWagerInBigBlinds wager: Double) -> RangeType {
+        if wager <= 1.5  { return .random }     // nobody has raised — a posted blind is not an action
+        if wager <= 2.0  { return .veryWide }   // a min-raise
+        if wager <= 5.0  { return .standard }   // a standard open
+        if wager <= 14.0 { return .tight }      // a 3-bet
+        return .veryTight                       // a 4-bet or better
+    }
+
+    /// Read villain's postflop range from their bet as a fraction of the pot they bet
+    /// into. Postflop the pot is real money, so a fraction of it is the right unit.
+    public static func postflopRange(potRelativeBet: Double) -> RangeType {
+        if potRelativeBet > 0.8 { return .tight }
+        if potRelativeBet > 0.5 { return .standard }
+        if potRelativeBet > 0.25 { return .wide }
+        return .veryWide
+    }
+
+    /// Determine opponent range based on their action.
+    ///
+    /// Both measurements are required, because the two streets genuinely use different
+    /// units — passing only the pot-relative one is what produced the preflop saturation.
     public static func rangeFromAction(
         potRelativeBet: Double,
-        street: Street,
-        isRaise: Bool
+        villainWagerInBigBlinds: Double,
+        street: Street
     ) -> RangeType {
         switch street {
         case .preflop:
-            if isRaise {
-                if potRelativeBet > 0.5 { return .veryTight }  // 3bet+
-                if potRelativeBet > 0.25 { return .tight }     // Open raise
-                return .standard
-            } else {
-                if potRelativeBet > 0.1 { return .wide }       // Call raise
-                return .veryWide                                // Limp
-            }
-
+            return preflopRange(villainWagerInBigBlinds: villainWagerInBigBlinds)
         case .flop, .turn, .river:
-            // Post-flop: betting indicates strength commitment
-            if potRelativeBet > 0.8 { return .tight }
-            if potRelativeBet > 0.5 { return .standard }
-            if potRelativeBet > 0.25 { return .wide }
-            return .veryWide
+            return postflopRange(potRelativeBet: potRelativeBet)
         }
     }
 }

@@ -56,7 +56,19 @@ Batch A (guards) is **done** — see the commit table above. Backlog items 33, 3
 closed by it, and item 34 was closed as a side effect: the kernel's new "deck cannot seat
 this deal" early-return means the board fill can no longer read uninitialised memory.
 
-**1. Batch D — the solver, finished.** Items 21, 23, 24, 25, 28, 29, plus:
+**1. Carry hero's committed-this-street amount into `GameStateCopy`.** This is now the
+top item, ahead of the rest of Batch D, because two shipped features are wrong without it.
+`GameStateCopy.villainWagerInBigBlinds` reconstructs villain's wager as
+`blindPosted + toCall`, but the identity is `heroTotalSoFar + toCall`, so once hero has
+opened, villain's raise is understated by hero's own prior raise. Consequences today: a
+7.5bb 3-bet reads `.standard` instead of `.tight` (equity computed against a range a third
+too wide, fold equity 0.45 instead of 0.35, both pointing at continuing too light), and
+4-bets size to about 2.2x the 3-bet instead of 3x. `PotEntry.preflop` already knows the
+number as `heroPriorWager` and discards it when the pot is flattened to `potSize`/`toCall`
+— it cannot be recovered from a pot total, so it has to be carried through `GameState` and
+`GameStateCopy`. Small change, but it touches the input model, so it needs its own pass.
+
+**2. Batch D — the rest.** Items 21, 24, 28, 29, plus:
 - `HandStrength`'s absolute cutoffs (0.85/0.70/0.50/0.35) were calibrated against
   equity-vs-random; 35 of 75 swept spot/range pairs land in a different bucket once
   equity is range-conditioned. This blocks re-enabling #30's routing.
@@ -64,7 +76,7 @@ this deal" early-return means the board fill can no longer read uninitialised me
   `RangeInferenceTests.preflopTiersAreOrdered` currently asserts that saturation as
   correct. Threshold preflop on big blinds, not on a fraction of a pot made only of blinds.
 
-**2. Batch E — the range engine.** Items 31, 32, and re-enabling 30's routing behind a
+**3. Batch E — the range engine.** Items 31, 32, and re-enabling 30's routing behind a
 board-conditioned continuation model. See the trap below before starting.
 
 ## Traps that already cost time
@@ -122,6 +134,15 @@ board-conditioned continuation model. See the trap below before starting.
   yet." Prefer that to forcing something through to call it finished.
 - Gate each batch on `./scripts/test` plus a real simulator launch; `git commit` per batch
   with a message explaining *why*, not just what. Don't push.
+
+## Smaller things found and not yet done
+
+- **`ResultView`'s "RAISE to" figure omits hero's posted blind**, so a small-blind open
+  that the solver sized to 3.0bb is displayed as "RAISE to $2.50" — the same number shown
+  for a button open, hiding the out-of-position premium the sizing deliberately adds.
+- **Preflop tier boundaries are absolute in big blinds**, so a short-stack shove of 20bb
+  reads as a 4-bet range. Correct for a 100bb game, wrong for a 25bb one; the boundaries
+  probably want to scale with the effective stack.
 
 ## Known dead code (not worth its own commit, but don't be misled)
 

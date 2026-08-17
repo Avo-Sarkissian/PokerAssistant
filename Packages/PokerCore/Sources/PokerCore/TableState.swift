@@ -148,6 +148,40 @@ public struct GameStateCopy: Sendable {
     /// Neither player can win or lose more than the smaller stack.
     public var effectiveStackChips: Double { min(stack, villainStack) }
 
+    /// What hero has already put in from a posted blind, before acting.
+    public func blindPosted(smallBlind: Double) -> Double {
+        switch position {
+        case "SB": return smallBlind
+        case "BB": return bigBlind
+        default:   return 0
+        }
+    }
+
+    /// Villain's total contribution to this street, in big blinds — the unit both the
+    /// preflop range read and preflop raise sizing are expressed in. One definition,
+    /// because the solver and the view model both need it and a second copy is how the
+    /// two would drift.
+    ///
+    /// **Known to under-count when hero was the previous aggressor.** The identity is
+    /// `villainTotal = heroTotalSoFar + toCall`, and `blindPosted` is only equal to
+    /// `heroTotalSoFar` while hero has put in nothing beyond a blind. Once hero has
+    /// opened, villain's wager is understated by exactly hero's prior voluntary raise:
+    /// hero opens to 2.5bb, villain 3-bets to 9bb, and this returns 6.5bb. A 7.5bb 3-bet
+    /// reports 5.0bb and reads `.standard` — an opening range — rather than `.tight`.
+    ///
+    /// Fixing it needs a field this type does not have: hero's committed-this-street
+    /// amount. `PotEntry.preflop` already computes it as `heroPriorWager` and throws it
+    /// away when the pot is flattened into `potSize`/`toCall`, so the fix is to carry it
+    /// through rather than to derive it here — there is no way to recover it from a pot
+    /// total. Until then this is exact for the common case (hero facing an open with
+    /// nothing in) and one tier too loose for re-raises, which is still a long way better
+    /// than the pot-relative read it replaced, where *every* preflop spot including an
+    /// unopened button read as a 3-bet range.
+    public func villainWagerInBigBlinds(smallBlind: Double) -> Double {
+        guard bigBlind > 0 else { return 0 }
+        return (blindPosted(smallBlind: smallBlind) + toCall) / bigBlind
+    }
+
     public var currentStreet: Street {
         let communityCount = communityCards.compactMap { $0 }.count
         switch communityCount {

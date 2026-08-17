@@ -35,11 +35,8 @@ struct RangeInferenceTests {
         var entry = PotEntry(potBeforeBet: 20, toCall: 0)
         entry.applyOpponentBet(fractionOfPot: fraction)
 
-        let inferred = OpponentRange.rangeFromAction(
-            potRelativeBet: entry.betFractionOfPotBeforeBet,
-            street: .flop,
-            isRaise: true
-        )
+        let inferred = OpponentRange.postflopRange(
+            potRelativeBet: entry.betFractionOfPotBeforeBet)
         #expect(inferred == expected,
                 "\(fraction) pot inferred \(inferred), expected \(expected)")
     }
@@ -55,8 +52,8 @@ struct RangeInferenceTests {
         for step in stride(from: 0.1, through: 2.0, by: 0.05) {
             var entry = PotEntry(potBeforeBet: 20, toCall: 0)
             entry.applyOpponentBet(fractionOfPot: step)
-            let index = tierIndex(OpponentRange.rangeFromAction(
-                potRelativeBet: entry.betFractionOfPotBeforeBet, street: .flop, isRaise: true))
+            let index = tierIndex(OpponentRange.postflopRange(
+                potRelativeBet: entry.betFractionOfPotBeforeBet))
 
             #expect(index >= previous,
                     "a \(String(format: "%.2f", step)) pot bet loosened the read")
@@ -64,29 +61,72 @@ struct RangeInferenceTests {
         }
     }
 
-    /// A bigger raise must never be read as a looser range than a smaller one.
-    @Test("Preflop raise tiers are ordered")
-    func preflopTiersAreOrdered() {
-        func fraction(_ preset: PreflopPreset) -> Double {
-            PotEntry.preflop(preset, heroPosition: "BTN", smallBlind: 0.5, bigBlind: 1.0)
-                .betFractionOfPotBeforeBet
+    /// Preflop the pot is only the blinds, so a bet measured against it saturates
+    /// immediately: the big blind alone is twice the 0.5bb sitting in front of the
+    /// button, which read as a 3-bet range inferred from nobody acting. Preflop reads
+    /// are in big blinds.
+    @Test("An unopened pot is not read as a raise",
+          arguments: ["BTN", "SB", "BB"])
+    func unopenedPotIsNotARaise(position: String) {
+        let entry = PotEntry.blindsOnly(heroPosition: position, smallBlind: 0.5, bigBlind: 1.0)
+        // Villain's street total is what hero must reach to call: their blind plus
+        // whatever hero still owes.
+        let heroBlind = position == "SB" ? 0.5 : (position == "BB" ? 1.0 : 0.0)
+        let villainWager = entry.toCall + heroBlind
+
+        let inferred = OpponentRange.preflopRange(villainWagerInBigBlinds: villainWager / 1.0)
+        #expect(inferred == .random,
+                "\(position) with nobody acting inferred \(inferred)")
+    }
+
+    /// Each line has to land in its own tier, strictly tighter than the one before.
+    /// Collapsing them all into `.veryTight` throws away the whole read.
+    @Test("Each preflop line reads as its own, progressively tighter range")
+    func preflopLinesAreDistinctAndOrdered() {
+        let tiers: [OpponentRange.RangeType] = [.random, .veryWide, .wide, .standard, .tight, .veryTight]
+        func tightness(_ r: OpponentRange.RangeType) -> Int { tiers.firstIndex(of: r) ?? -1 }
+
+        let reads = [PreflopPreset.limp, .open, .threeBet, .fourBet].map { preset -> (String, OpponentRange.RangeType) in
+            (preset.rawValue, OpponentRange.preflopRange(villainWagerInBigBlinds: preset.villainWager))
         }
 
-        let limp = fraction(.limp)
-        let open = fraction(.open)
-        let threeBet = fraction(.threeBet)
-        let fourBet = fraction(.fourBet)
+        for (looser, tighter) in zip(reads, reads.dropFirst()) {
+            #expect(tightness(tighter.1) > tightness(looser.1),
+                    "\(tighter.0) read \(tighter.1), no tighter than \(looser.0)'s \(looser.1)")
+        }
+        #expect(Set(reads.map(\.1)).count == reads.count,
+                Comment(rawValue: "lines collapsed into the same tier: "
+                        + reads.map { "\($0.0) \($0.1)" }.joined(separator: ", ")))
+    }
 
-        #expect(open > limp, "an open (\(open)) should read as a bigger raise than a limp (\(limp))")
-        #expect(threeBet > limp, "a 3-bet (\(threeBet)) should read bigger than a limp (\(limp))")
-        #expect(fourBet > limp, "a 4-bet (\(fourBet)) should read bigger than a limp (\(limp))")
+    /// A read in blinds is scale-free: the same line at 2.50/5.00 reads the same as at
+    /// 0.50/1.00. Measured against a pot of blinds it would not.
+    @Test("The preflop read does not change with the stake")
+    func preflopReadIsScaleFree() {
+        for preset in PreflopPreset.allCases {
+            let low = PotEntry.preflop(preset, heroPosition: "BTN", smallBlind: 0.5, bigBlind: 1.0)
+            let high = PotEntry.preflop(preset, heroPosition: "BTN", smallBlind: 2.5, bigBlind: 5.0)
 
-        // Every genuine raise must land in the tightest preflop tier.
-        for preset in [PreflopPreset.open, .threeBet, .fourBet] {
-            let inferred = OpponentRange.rangeFromAction(
-                potRelativeBet: fraction(preset), street: .preflop, isRaise: true)
-            #expect(inferred == .veryTight,
-                    "\(preset.rawValue) inferred \(inferred)")
+            let atOne = OpponentRange.preflopRange(villainWagerInBigBlinds: low.toCall / 1.0)
+            let atFive = OpponentRange.preflopRange(villainWagerInBigBlinds: high.toCall / 5.0)
+
+            #expect(atOne == atFive, "\(preset.rawValue): \(atOne) at 0.50/1.00, \(atFive) at 2.50/5.00")
+        }
+    }
+
+    /// The property that matters wherever the boundaries sit: a bigger raise is never a
+    /// looser read.
+    @Test("A bigger preflop raise is never read as a looser range")
+    func preflopReadTightensMonotonically() {
+        let tiers: [OpponentRange.RangeType] = [.random, .veryWide, .wide, .standard, .tight, .veryTight]
+        func tightness(_ r: OpponentRange.RangeType) -> Int { tiers.firstIndex(of: r) ?? -1 }
+
+        var previous = -1
+        for wager in stride(from: 0.5, through: 40.0, by: 0.5) {
+            let index = tightness(OpponentRange.preflopRange(villainWagerInBigBlinds: wager))
+            #expect(index >= previous,
+                    "a \(String(format: "%.1f", wager))bb wager loosened the read")
+            previous = max(previous, index)
         }
     }
 
