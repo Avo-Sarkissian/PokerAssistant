@@ -7,13 +7,20 @@ import PokerTestSupport
 /// tiny and clamps onto the minimum-raise floor. Everything here is stated in big blinds,
 /// which is how preflop sizing is actually reasoned about at a table.
 ///
-/// Note these vary the *hole cards*, not `myEquity`: preflop the solver takes its hand
-/// class from the 169-hand chart and ignores the equity it was passed, so a sweep over
-/// equity holds the hand fixed and measures nothing.
+/// The strength sweeps below vary `myEquity`, because that is now the only route hand
+/// strength takes into the solver. They used to vary the *hole cards*, which was correct
+/// while preflop read the 169-hand chart and ignored the equity it was passed — and
+/// became a sweep over an input with no effect the moment #29 removed that chart lookup.
+/// A test that varies the wrong knob passes whatever the code does.
 @Suite("Preflop raise sizing")
 struct PreflopSizingTests {
 
     private let solver = ExploitativeSolver()
+
+    /// Every grade `HandStrength` can produce, as the equity that produces it. Sizing
+    /// must be identical across all five preflop; a sweep that missed a band would not
+    /// notice strength leaking back into the size.
+    private static let strengthSweep: [Double] = [0.20, 0.42, 0.60, 0.78, 0.92]
 
     /// Hero's **total street contribution** in big blinds — the posted blind, plus the
     /// call, plus the raise on top. This is the quantity the sizing rules are stated in.
@@ -21,18 +28,18 @@ struct PreflopSizingTests {
     /// An earlier version returned only the chips hero *adds*, which is a different
     /// number for any seat holding a blind, and it is how a 4-bet that was 5bb short of
     /// its target passed a `>= 17.0` assertion.
-    private func raiseTo(_ hole: String,
+    private func raiseTo(equity: Double = 0.6,
                          pot: Double,
                          toCall: Double,
                          position: String = "BTN",
                          bigBlind: Double = 1.0,
                          stack: Double = 100,
                          heroWagerThisStreet: Double = 0) -> Double {
-        let state = spot(hole: hole, pot: pot, toCall: toCall, stack: stack,
+        let state = spot(pot: pot, toCall: toCall, stack: stack,
                          villainStack: stack, position: position, bigBlind: bigBlind,
                          heroWagerThisStreet: heroWagerThisStreet)
         let settings = SolverSettings(smallBlind: bigBlind / 2, bigBlind: bigBlind)
-        let result = solver.solve(gameState: state, myEquity: 0.6, settings: settings)
+        let result = solver.solve(gameState: state, myEquity: equity, settings: settings)
         let committed = state.heroCommitted(smallBlind: settings.smallBlind)
         return (committed + toCall + result.raiseAmount) / bigBlind
     }
@@ -40,36 +47,34 @@ struct PreflopSizingTests {
     /// An unopened pot holds 1.5bb, and a fraction of that is less than the blind hero
     /// already owes, so the size clamps to the legal minimum: everything but aces opened
     /// to exactly 2bb, which gives the big blind 3.5:1 to defend any two cards.
-    @Test("An unopened pot opens to a real size, whatever hero holds",
-          arguments: ["Ad Ac", "Kd Qd", "9d 9c", "Jd Tc", "7d 2c"])
-    func unopenedPotOpensToARealSize(hole: String) {
-        let size = raiseTo(hole, pot: 1.5, toCall: 1.0)
-        #expect(size >= 2.2 && size <= 3.2, "\(hole) opened to \(size)bb")
+    @Test("An unopened pot opens to a real size at every hand strength",
+          arguments: PreflopSizingTests.strengthSweep)
+    func unopenedPotOpensToARealSize(equity: Double) {
+        let size = raiseTo(equity: equity, pot: 1.5, toCall: 1.0)
+        #expect(size >= 2.2 && size <= 3.2, "at \(equity) equity, opened to \(size)bb")
     }
 
     /// Sizing that varies with hand strength is a tell, and this one is legible from
     /// across the table: aces opened 25% larger than everything else, every time.
     @Test("The open size does not broadcast hand strength")
     func openSizeDoesNotBroadcastStrength() {
-        let sizes = ["Ad Ac", "Kd Qd", "9d 9c", "Jd Tc", "7d 2c"]
-            .map { ($0, raiseTo($0, pot: 1.5, toCall: 1.0)) }
+        let sizes = Self.strengthSweep.map { ($0, raiseTo(equity: $0, pot: 1.5, toCall: 1.0)) }
         let distinct = Set(sizes.map { ($0.1 * 100).rounded() })
 
         #expect(distinct.count == 1,
-                Comment(rawValue: "opens differ by hand: "
-                        + sizes.map { "\($0.0) \($0.1)bb" }.joined(separator: ", ")))
+                Comment(rawValue: "opens differ by strength: "
+                        + sizes.map { "\($0.0) → \($0.1)bb" }.joined(separator: ", ")))
     }
 
     /// The same tell one street of betting later.
     @Test("The 3-bet size does not broadcast hand strength")
     func threeBetSizeDoesNotBroadcastStrength() {
-        let sizes = ["Ad Ac", "Kd Qd", "Jd Tc", "7d 2c"]
-            .map { ($0, raiseTo($0, pot: 4.0, toCall: 2.5)) }
+        let sizes = Self.strengthSweep.map { ($0, raiseTo(equity: $0, pot: 4.0, toCall: 2.5)) }
         let distinct = Set(sizes.map { ($0.1 * 100).rounded() })
 
         #expect(distinct.count == 1,
-                Comment(rawValue: "3-bets differ by hand: "
-                        + sizes.map { "\($0.0) \($0.1)bb" }.joined(separator: ", ")))
+                Comment(rawValue: "3-bets differ by strength: "
+                        + sizes.map { "\($0.0) → \($0.1)bb" }.joined(separator: ", ")))
     }
 
     /// A 3-bet is a multiple of the bet it raises, not a nudge over the minimum. Three
@@ -77,7 +82,7 @@ struct PreflopSizingTests {
     /// in with their whole range.
     @Test("A 3-bet is a real multiple of the open it faces")
     func threeBetIsAMultipleOfTheOpen() {
-        let size = raiseTo("Ad Ac", pot: 4.0, toCall: 2.5)
+        let size = raiseTo(pot: 4.0, toCall: 2.5)
         #expect(size >= 7.0, "3-bet to only \(size)bb over a 2.5bb open")
     }
 
@@ -85,7 +90,7 @@ struct PreflopSizingTests {
     /// a little over twice the 3-bet; 13bb is not a 4-bet.
     @Test("A 4-bet is a real multiple of the 3-bet it faces")
     func fourBetIsAMultipleOfTheThreeBet() {
-        let size = raiseTo("Ad Ac", pot: 12.0, toCall: 6.5)
+        let size = raiseTo(pot: 12.0, toCall: 6.5)
         #expect(size >= 17.0, "4-bet added only \(size)bb over a 9bb 3-bet")
     }
 
@@ -94,8 +99,8 @@ struct PreflopSizingTests {
     @Test("Out of position opens larger than in position")
     func outOfPositionOpensLarger() {
         // Button owes the full blind; the small blind owes the completion.
-        let button = raiseTo("Ad Ac", pot: 1.5, toCall: 1.0, position: "BTN")
-        let smallBlind = raiseTo("Ad Ac", pot: 1.5, toCall: 0.5, position: "SB")
+        let button = raiseTo(pot: 1.5, toCall: 1.0, position: "BTN")
+        let smallBlind = raiseTo(pot: 1.5, toCall: 0.5, position: "SB")
 
         #expect(smallBlind > button, "SB to \(smallBlind)bb, BTN to \(button)bb")
     }
@@ -104,8 +109,8 @@ struct PreflopSizingTests {
     /// big blinds as at 0.50/1.00.
     @Test("Preflop sizes scale with the blind level")
     func sizesScaleWithTheBlindLevel() {
-        let atOne = raiseTo("Ad Ac", pot: 1.5, toCall: 1.0, bigBlind: 1.0, stack: 100)
-        let atFive = raiseTo("Ad Ac", pot: 7.5, toCall: 5.0, bigBlind: 5.0, stack: 500)
+        let atOne = raiseTo(pot: 1.5, toCall: 1.0, bigBlind: 1.0, stack: 100)
+        let atFive = raiseTo(pot: 7.5, toCall: 5.0, bigBlind: 5.0, stack: 500)
 
         #expect(abs(atOne - atFive) < 1e-9,
                 "\(atOne)bb at 0.50/1.00 but \(atFive)bb at 2.50/5.00")
@@ -121,15 +126,15 @@ struct PreflopSizingTests {
     @Test("The big blind facing a min-raise re-raises, not min-raises")
     func bigBlindFacingAMinRaiseReRaises() {
         // Button opens to 2bb: 0.5 + 2.0 already in, hero owes 1.0 more.
-        let size = raiseTo("Ad Ac", pot: 3.5, toCall: 1.0, position: "BB")
+        let size = raiseTo(pot: 3.5, toCall: 1.0, position: "BB")
         #expect(size >= 6.0, "BB re-raised to only \(size)bb over a 2bb open")
     }
 
     /// One cent either side of the boundary must not double the size.
     @Test("The size does not jump at the min-raise boundary")
     func noCliffAtTheMinRaiseBoundary() {
-        let atBoundary = raiseTo("Ad Ac", pot: 3.5, toCall: 1.0, position: "BB")
-        let justOver = raiseTo("Ad Ac", pot: 3.52, toCall: 1.01, position: "BB")
+        let atBoundary = raiseTo(pot: 3.5, toCall: 1.0, position: "BB")
+        let justOver = raiseTo(pot: 3.52, toCall: 1.01, position: "BB")
 
         #expect(abs(atBoundary - justOver) < 0.5,
                 "\(atBoundary)bb at the boundary vs \(justOver)bb one cent over")
@@ -157,8 +162,8 @@ struct PreflopSizingTests {
     @Test("An isolation raise charges for the limpers")
     func isolationRaiseChargesForLimpers() {
         // Three limpers: 0.5 + 1.0 blinds + 3 x 1.0 limped = 4.5, hero owes 1.0.
-        let threeLimpers = raiseTo("Ad Ac", pot: 4.5, toCall: 1.0)
-        let unopened = raiseTo("Ad Ac", pot: 1.5, toCall: 1.0)
+        let threeLimpers = raiseTo(pot: 4.5, toCall: 1.0)
+        let unopened = raiseTo(pot: 1.5, toCall: 1.0)
 
         #expect(threeLimpers > unopened + 2.0,
                 "opened to \(threeLimpers)bb over three limpers vs \(unopened)bb unopened")
@@ -171,7 +176,7 @@ struct PreflopSizingTests {
     @Test("A 4-bet is sized off villain's real raise, not off what hero owes")
     func fourBetSizesOffVillainsRealRaise() {
         // Hero opened to 2.5, villain 3-bet to 9: pot 12, hero owes 6.5.
-        let size = raiseTo("Ad Ac", pot: 12.0, toCall: 6.5, heroWagerThisStreet: 2.5)
+        let size = raiseTo(pot: 12.0, toCall: 6.5, heroWagerThisStreet: 2.5)
         #expect(size >= 26.0 && size <= 28.0,
                 "4-bet to \(size)bb; three times a 9bb 3-bet is 27bb")
     }
@@ -180,8 +185,8 @@ struct PreflopSizingTests {
     @Test("A re-raise accounts for what hero already put in")
     func reRaiseAccountsForHerosPriorWager() {
         // Hero opened to 2.5, villain 3-bet to 7.5: pot 10.5, hero owes 5.0.
-        let withPrior = raiseTo("Ad Ac", pot: 10.5, toCall: 5.0, heroWagerThisStreet: 2.5)
-        let withoutPrior = raiseTo("Ad Ac", pot: 10.5, toCall: 5.0)
+        let withPrior = raiseTo(pot: 10.5, toCall: 5.0, heroWagerThisStreet: 2.5)
+        let withoutPrior = raiseTo(pot: 10.5, toCall: 5.0)
 
         #expect(withPrior > withoutPrior,
                 "\(withPrior)bb knowing hero opened vs \(withoutPrior)bb not knowing")

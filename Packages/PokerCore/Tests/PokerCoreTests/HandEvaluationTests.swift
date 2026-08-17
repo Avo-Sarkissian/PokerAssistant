@@ -97,7 +97,7 @@ struct StartingHandRankingTests {
         for i in 0..<deck.count {
             for j in (i + 1)..<deck.count {
                 let key = OpponentRange.canonicalHand(deck[i], deck[j])
-                rankingsSeen[key] = OpponentRange.handStrength(deck[i], deck[j])
+                rankingsSeen[key] = OpponentRange.openingRangeRank(deck[i], deck[j])
             }
         }
 
@@ -110,7 +110,7 @@ struct StartingHandRankingTests {
 
     @Test("Pocket tens rank as a premium starting hand")
     func pocketTensAreStrong() {
-        let strength = OpponentRange.handStrength(card("Ts"), card("Th"))
+        let strength = OpponentRange.openingRangeRank(card("Ts"), card("Th"))
         #expect(strength < 20)
     }
 

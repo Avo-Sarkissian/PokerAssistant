@@ -15,8 +15,17 @@ public struct OpponentRange {
         public var percentile: Double { rawValue }
     }
 
-    /// The 169 starting-hand classes in strength order, by preflop all-in equity against
-    /// a random hand. AA=0, KK=1, ..., 72o=168; lower is stronger.
+    /// The 169 starting-hand classes in the order players **open** them: a
+    /// Sklansky-Chubukov-style ordering, adapted for 6-max, where suitedness and
+    /// connectedness count because they are what makes a hand playable after the flop.
+    /// AA=0, KK=1, ..., 72o=168; lower is opened more often.
+    ///
+    /// This is **not** an ordering by all-in equity against a random hand, and it used to
+    /// say that it was. The two disagree sharply — 65s stands 27 places above K6o here
+    /// and holds eleven points less all-in equity (43.1% vs 54.2%, measured in
+    /// `PreflopHandClassTests`), and AKs stands above JJ while JJ holds eleven points
+    /// more. Reading this list as a strength order is exactly the mistake that graded
+    /// hero's own hand: see `openingRangeRank`.
     private static let rankedHands: [String] = [
             // Tier 1: Premium (0-4)
             "AA", "KK", "QQ", "AKs", "JJ",
@@ -91,8 +100,17 @@ public struct OpponentRange {
         }
     }
 
-    /// Get hand strength index (0 = AA, 168 = 72o)
-    public static func handStrength(_ card1: Card, _ card2: Card) -> Int {
+    /// Where a hand sits in the opening-range order (0 = AA, 168 = 72o).
+    ///
+    /// Named for its one job: deciding which holdings a range of a given width contains.
+    /// It was called `handStrength`, and under that name the solver used it to grade
+    /// *hero's* hand into monster/strong/medium/weak/bluff — a different question, with a
+    /// different right answer. That produced the inversion this rename exists to prevent:
+    /// K6o graded above 65s despite ranking 27 places worse, because the tiers only
+    /// covered ranks 0–75 and everything past that fell through to an equity test, so the
+    /// two hands were graded on two different scales. Hero's grade now comes from equity
+    /// on every street, and this ordering has one consumer again — `isHandInRange`.
+    public static func openingRangeRank(_ card1: Card, _ card2: Card) -> Int {
         let hand = canonicalHand(card1, card2)
         return handRankings[hand] ?? 168
     }
@@ -101,9 +119,9 @@ public struct OpponentRange {
     /// classes — see `cumulativeCombinations` for why the two disagree.
     public static func isHandInRange(_ card1: Card, _ card2: Card, range: RangeType) -> Bool {
         guard range != .random else { return true }
-        let strength = handStrength(card1, card2)
-        guard strength < cumulativeCombinations.count else { return false }
-        return Double(cumulativeCombinations[strength])
+        let rank = openingRangeRank(card1, card2)
+        guard rank < cumulativeCombinations.count else { return false }
+        return Double(cumulativeCombinations[rank])
             <= range.percentile * Double(totalCombinations)
     }
 
