@@ -18,7 +18,7 @@ public final class PreflopEquityTable {
     /// Bump this whenever the evaluator, the sampler, or the range model changes.
     /// Cached equities are permanent otherwise, so a corrected engine would never
     /// reach anyone who had already opened the app.
-    private static let schemaVersion = 3
+    private static let schemaVersion = 4
     private let prefix = "PreflopEq_v\(PreflopEquityTable.schemaVersion)_"
 
     // In-memory cache so repeated same-session lookups skip UserDefaults entirely
@@ -55,14 +55,19 @@ public final class PreflopEquityTable {
         if let cached = cachedEquity(hand: hand, opponents: opponents, range: range) { return cached }
         guard let key = cacheKey(hand: hand, opponents: opponents, range: range) else { return nil }
 
-        // Run a quick simulation (200K iterations converges to ~0.5% SE for preflop)
+        // 200K iterations, and it has to actually run them. With the old 0.005 threshold
+        // the engine stopped after the very first 50K batch — standard error at p≈0.5 and
+        // n=50,000 is 0.0022, already under it — so every cached preflop equity was a 50K
+        // sample carrying ~0.22 points of error, written to UserDefaults and never
+        // recomputed. 0.001 sits just under the 0.00112 that 200K reaches, so the run
+        // completes; the schema bump above discards the coarser values already stored.
         let equity = await engine.simulate(
             hand: hand,
             opponents: opponents,
             deadCards: [],
             iterations: 200_000,
             opponentRange: range,
-            confidenceThreshold: 0.005,
+            confidenceThreshold: 0.001,
             maxTimeSeconds: 3.0
         )
 

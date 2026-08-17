@@ -13,6 +13,19 @@ struct MainGameView: View {
     /// the solver priced anything else as a button anyway.
     private var seats: [Position] { Position.seats(tableSize: settings.numberOfPlayers) }
 
+    /// The seat to render and to price with, which is not always the stored one.
+    ///
+    /// `selectedPosition` is `@State` and so cannot be initialised from `Settings`, and
+    /// every corrector for it runs in `onAppear` or `onChange` — after the body that reads
+    /// it. So the body resolves the seat itself rather than trusting a value that may
+    /// describe a chair this table does not deal. Trusting it crashed the app; see
+    /// `positionExplanation`.
+    private var seat: Position {
+        let tableSize = settings.numberOfPlayers
+        if selectedPosition.exists(tableSize: tableSize) { return selectedPosition }
+        return Position.btn.exists(tableSize: tableSize) ? .btn : .sb
+    }
+
     enum CardSelectionType: Identifiable {
         case hole(Int)
         case community(Int)
@@ -53,16 +66,16 @@ struct MainGameView: View {
                         ScrollViewReader { seatScroll in
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 6) {
-                                    ForEach(seats) { seat in
-                                        seatChip(seat).id(seat)
+                                    ForEach(seats) { candidate in
+                                        seatChip(candidate).id(candidate)
                                     }
                                 }
                                 .padding(.horizontal, 1)
                             }
-                            .onAppear { seatScroll.scrollTo(selectedPosition, anchor: .center) }
-                            .onChange(of: selectedPosition) { _, seat in
+                            .onAppear { seatScroll.scrollTo(seat, anchor: .center) }
+                            .onChange(of: seat) { _, resolved in
                                 withAnimation(.easeOut(duration: 0.2)) {
-                                    seatScroll.scrollTo(seat, anchor: .center)
+                                    seatScroll.scrollTo(resolved, anchor: .center)
                                 }
                             }
                         }
@@ -91,7 +104,7 @@ struct MainGameView: View {
                     }
 
                     // --- POT CONTROLS ---
-                    PotInfoViewEnhanced(selectedPosition: $selectedPosition)
+                    PotInfoViewEnhanced(heroSeat: seat)
                     
                     // --- ACTION BUTTON OR RESULT ---
                     if gameViewModel.isCalculating {
@@ -136,19 +149,26 @@ struct MainGameView: View {
             }
             // Initialize pot with blinds
             initializePotWithBlinds()
-            // Store position in game state
-            gameViewModel.gameState.position = selectedPosition
+            // Store the resolved seat, which may differ from the stored one.
+            selectedPosition = seat
+            gameViewModel.gameState.position = seat
         }
         // Settings is a sheet over this view, so `onAppear` does not run again when it is
         // dismissed: without this, changing the table size left the seat row showing a
         // chair the table no longer deals until the hand was reset.
         .onChange(of: settings.numberOfPlayers) { _, newSize in
             gameViewModel.gameState.tableSize = newSize
-            if gameViewModel.gameState.playersInHand > newSize {
+            // The same rule `initializePotWithBlinds` applies: on a fresh hand every seat
+            // is dealt in. Clamping only downwards left a table grown from two to nine
+            // showing "2 players · 1 opponent" and pricing equity against one villain.
+            let blindsTotal = settings.smallBlind + settings.bigBlind
+            if gameViewModel.gameState.potSize <= blindsTotal {
+                gameViewModel.gameState.playersInHand = newSize
+            } else if gameViewModel.gameState.playersInHand > newSize {
                 gameViewModel.gameState.playersInHand = newSize
             }
             if !selectedPosition.exists(tableSize: newSize) {
-                selectedPosition = Position.btn.exists(tableSize: newSize) ? .btn : .sb
+                selectedPosition = seat
                 updateForPosition(selectedPosition)
             }
         }
@@ -168,13 +188,13 @@ struct MainGameView: View {
     }
 
     @ViewBuilder
-    private func seatChip(_ seat: Position) -> some View {
-        let isSelected = selectedPosition == seat
+    private func seatChip(_ candidate: Position) -> some View {
+        let isSelected = seat == candidate
         Button {
-            selectedPosition = seat
-            updateForPosition(seat)
+            selectedPosition = candidate
+            updateForPosition(candidate)
         } label: {
-            Text(seat.rawValue)
+            Text(candidate.rawValue)
                 .font(.caption.weight(isSelected ? .semibold : .regular))
                 .monospacedDigit()
                 .padding(.horizontal, 10)
@@ -184,58 +204,22 @@ struct MainGameView: View {
                 .clipShape(Capsule())
         }
         .buttonStyle(ScaleButtonStyle())
-        .accessibilityLabel(seatName(seat))
+        .accessibilityLabel(seatName(candidate))
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
-    /// Spelled out for the accessibility label and the explanation line. Exhaustive on
-    /// purpose: a new seat cannot be added without naming it.
-    private func seatName(_ seat: Position) -> String {
-        switch seat {
-        case .utg:  return "Under the gun"
-        case .utg1: return "Under the gun plus one"
-        case .utg2: return "Under the gun plus two"
-        case .lj:   return "Lojack"
-        case .hj:   return "Hijack"
-        case .co:   return "Cutoff"
-        case .btn:  return "Button"
-        case .sb:   return "Small blind"
-        case .bb:   return "Big blind"
-        }
+    private func seatName(_ candidate: Position) -> String {
+        SeatExplanation.name(of: candidate)
     }
 
-    /// Where hero acts, said in the terms the seat actually implies at *this* table size.
-    /// The old version hard-coded three seats and returned an empty string for anything
-    /// else, and told the small blind it was out of position even heads-up, where the
-    /// small blind holds the button.
     private var positionExplanation: String {
-        let tableSize = settings.numberOfPlayers
-        let inPosition = selectedPosition.isInPosition(tableSize: tableSize)
-        let after = tableSize - 1 - selectedPosition.postflopActionIndex(tableSize: tableSize)
-        let name = seatName(selectedPosition)
-
-        if isPostFlop {
-            if inPosition {
-                return "\(name): you act LAST — every other player has to act before you."
-            }
-            return "\(name): \(after) player\(after == 1 ? "" : "s") act after you on every street."
-        }
-
-        switch selectedPosition {
-        case .sb:
-            let owed = settings.bigBlind - settings.smallBlind
-            return "Small blind: posted $\(money(settings.smallBlind)), $\(money(owed)) more to call"
-                + (inPosition ? ". You hold the button heads-up." : ". Out of position after the flop.")
-        case .bb:
-            return "Big blind: posted $\(money(settings.bigBlind)). You act last pre-flop and can check if nobody raises."
-        default:
-            let toAct = tableSize - 1 - seats.firstIndex(of: selectedPosition)!
-            return "\(name): \(toAct) player\(toAct == 1 ? "" : "s") still to act behind you pre-flop"
-                + (inPosition ? ", and you act last after the flop." : ".")
-        }
+        SeatExplanation(seat: seat,
+                        tableSize: settings.numberOfPlayers,
+                        smallBlind: settings.smallBlind,
+                        bigBlind: settings.bigBlind,
+                        isPostFlop: isPostFlop).text
     }
 
-    private func money(_ value: Double) -> String { String(format: "%.2f", value) }
     
     private func initializePotWithBlinds() {
         // Seed the pot with the posted blinds if it has not been set yet.
@@ -254,9 +238,7 @@ struct MainGameView: View {
         }
         // A seat the table no longer deals — UTG after switching to three-handed — has to
         // move before it is shown as selected.
-        if !selectedPosition.exists(tableSize: settings.numberOfPlayers) {
-            selectedPosition = Position.btn.exists(tableSize: settings.numberOfPlayers) ? .btn : .sb
-        }
+        selectedPosition = seat
         // Only seed the blinds when nothing has been entered for this hand yet.
         if gameViewModel.gameState.potSize <= blindsTotal {
             updateForPosition(selectedPosition)
@@ -475,7 +457,7 @@ struct CardView: View {
 struct PotInfoViewEnhanced: View {
     @EnvironmentObject var gameViewModel: GameViewModel
     @EnvironmentObject var settings: Settings
-    @Binding var selectedPosition: Position
+    let heroSeat: Position
 
     @State private var editingPot = false
     @State private var editingCall = false
@@ -665,10 +647,10 @@ struct PotInfoViewEnhanced: View {
                         Button {
                             // The preset knows what hero already had in; `commit` only
                             // sees the flattened pot, so pass it explicitly.
-                            let heroBlind = selectedPosition == .sb ? settings.smallBlind
-                                : (selectedPosition == .bb ? settings.bigBlind : 0)
+                            let heroBlind = heroSeat == .sb ? settings.smallBlind
+                                : (heroSeat == .bb ? settings.bigBlind : 0)
                             commit(PotEntry.preflop(preset,
-                                                    heroPosition: selectedPosition,
+                                                    heroPosition: heroSeat,
                                                     smallBlind: settings.smallBlind,
                                                     bigBlind: settings.bigBlind),
                                    heroWager: max(preset.heroPriorWager * settings.bigBlind,
@@ -830,3 +812,96 @@ struct CalculateButton: View {
     }
 }
 
+
+// MARK: - Seat explanation
+
+/// The line of copy under the seat row, as a value rather than a computed property on a
+/// view — so that it can be tested at every `(seat, tableSize)` pair.
+///
+/// It lives outside the view because the version that lived inside it **crashed the app**.
+/// It read `seats.firstIndex(of: selectedPosition)!`, and `selectedPosition` is `@State`
+/// initialised to `.btn` while `seats` comes from `Settings`: with "Players at Table" set
+/// to 2 there is no button seat, the body runs before `onAppear` and before any `onChange`,
+/// and the force-unwrap trapped before anything rendered. `@AppStorage` had already
+/// persisted the 2, so it trapped again on every launch. Nothing in the test target could
+/// reach a `private var` on a `View` to notice.
+struct SeatExplanation {
+    let seat: Position
+    let tableSize: Int
+    let smallBlind: Double
+    let bigBlind: Double
+    let isPostFlop: Bool
+
+    /// Spelled out for the accessibility label and the explanation line. Exhaustive on
+    /// purpose: a new seat cannot be added without naming it.
+    static func name(of seat: Position) -> String {
+        switch seat {
+        case .utg:  return "Under the gun"
+        case .utg1: return "Under the gun plus one"
+        case .utg2: return "Under the gun plus two"
+        case .lj:   return "Lojack"
+        case .hj:   return "Hijack"
+        case .co:   return "Cutoff"
+        case .btn:  return "Button"
+        case .sb:   return "Small blind"
+        case .bb:   return "Big blind"
+        }
+    }
+
+    /// Where hero acts, in the terms the seat implies at *this* table size.
+    ///
+    /// Counts are in *seats*, not players. The app knows how many players are live but not
+    /// which chairs they hold, so "8 players act after you" beside a row reading
+    /// "2 players · 1 opponent" was simply false; the number of seats behind hero is a fact
+    /// about the table and stays true however many have folded.
+    var text: String {
+        let inPosition = seat.isInPosition(tableSize: tableSize)
+        let name = Self.name(of: seat)
+
+        if isPostFlop {
+            if inPosition {
+                return "\(name): you act last after the flop — no seat acts behind you."
+            }
+            return "\(name): \(seats(behindPostflop)) act after you on every street from the flop on."
+        }
+
+        switch seat {
+        case .sb:
+            return "Small blind: posted $\(money(smallBlind))"
+                + (inPosition
+                   ? ". Heads-up you hold the button, so you act last after the flop."
+                   : ". Out of position after the flop.")
+        case .bb:
+            return "Big blind: posted $\(money(bigBlind)). You act last pre-flop."
+        default:
+            return "\(name): \(seats(behindPreflop)) still to act behind you pre-flop"
+                + (inPosition ? ", and you act last after the flop." : ".")
+        }
+    }
+
+    /// Seats acting after hero once the flop is out. Never negative: it is measured at the
+    /// table that actually seats hero, which is what the force-unwrapping version failed to
+    /// do — a UTG+2 read at a four-handed table printed "-1 players act after you".
+    var behindPostflop: Int {
+        effectiveTableSize - 1 - seat.postflopActionIndex(tableSize: tableSize)
+    }
+
+    /// Seats still to act behind hero before the flop.
+    var behindPreflop: Int {
+        let order = Position.seats(tableSize: effectiveTableSize)
+        return effectiveTableSize - 1 - (order.firstIndex(of: seat) ?? 0)
+    }
+
+    /// The table hero is actually seated at. A `(seat, tableSize)` pair the picker cannot
+    /// produce — a cutoff at a three-handed table — is read at the smallest table that
+    /// seats the cutoff, matching what `Position` does, rather than producing a negative
+    /// count or trapping.
+    private var effectiveTableSize: Int {
+        var n = min(9, max(2, tableSize))
+        while !seat.exists(tableSize: n) && n < 9 { n += 1 }
+        return n
+    }
+
+    private func seats(_ n: Int) -> String { "\(n) seat\(n == 1 ? "" : "s")" }
+    private func money(_ value: Double) -> String { String(format: "%.2f", value) }
+}

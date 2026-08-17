@@ -116,14 +116,22 @@ public struct GameStateCopy: Sendable {
     public let toCall: Double
     public let bigBlind: Double
     public let opponentStyle: OpponentStyle
+
+    /// Players still contesting the pot, hero included. Never more than `tableSize`, and
+    /// never fewer than two: a pot with one player in it is not a decision.
     public let playersInHand: Int
 
     /// Seats dealt in, which decides **which seats exist** and how far hero's seat is
     /// from the button. Distinct from `playersInHand`: six can be dealt in while two see
-    /// the river, and relative position is a property of the table, not of who folded.
+    /// the river, and hero's chair does not move when someone folds.
     ///
-    /// Clamped to the sizes the app offers, and never below `playersInHand` — more
-    /// players contesting a pot than are seated at the table is not a spot.
+    /// Clamped to the sizes the app offers, and nothing else. More players contesting a
+    /// pot than are seated at the table is not a spot, and the fix is to seat fewer
+    /// players — see `playersInHand`. Raising the table size instead is what an earlier
+    /// version did, and it answered a different question than the caller asked: a
+    /// heads-up small blind, the seat that *holds the button*, became a six-handed small
+    /// blind, flipping `isInPosition` and swinging the bluff premium by 2.17× without a
+    /// word.
     public let tableSize: Int
 
     /// Hero's total contribution to the current street so far: a posted blind, plus any
@@ -157,10 +165,12 @@ public struct GameStateCopy: Sendable {
         self.toCall = toCall
         self.bigBlind = bigBlind
         self.opponentStyle = opponentStyle
-        self.playersInHand = playersInHand
-        self.tableSize = min(Position.supportedTableSizes.upperBound,
-                             max(Position.supportedTableSizes.lowerBound,
-                                 max(tableSize, playersInHand)))
+        // Seats first, then players into the seats. The other order lets a bad player
+        // count invent seats and move hero's chair.
+        let seated = min(Position.supportedTableSizes.upperBound,
+                         max(Position.supportedTableSizes.lowerBound, tableSize))
+        self.tableSize = seated
+        self.playersInHand = min(seated, max(2, playersInHand))
         self.heroWagerThisStreet = heroWagerThisStreet
     }
 
@@ -169,6 +179,12 @@ public struct GameStateCopy: Sendable {
 
     /// Opponents hero is actually up against right now.
     public var opponentCount: Int { max(1, playersInHand - 1) }
+
+    /// Whether hero is dealt at all at this table size. False only for a
+    /// `(seat, tableSize)` pair the picker cannot produce — a cutoff at a three-handed
+    /// table — which every positional read then treats as out of position rather than
+    /// quietly relocating hero.
+    public var seatIsDealt: Bool { position.exists(tableSize: tableSize) }
 
     /// Neither player can win or lose more than the smaller stack.
     public var effectiveStackChips: Double { min(stack, villainStack) }

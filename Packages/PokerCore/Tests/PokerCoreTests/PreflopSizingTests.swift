@@ -80,18 +80,29 @@ struct PreflopSizingTests {
     /// A 3-bet is a multiple of the bet it raises, not a nudge over the minimum. Three
     /// times the open is standard in position; 5bb over a 2.5bb open prices the opener
     /// in with their whole range.
+    ///
+    /// A two-sided window, because a one-sided `>= 7.0` floor had 7% of slack in it:
+    /// shaving the multiple from 3.0 to 2.8 lands on exactly 7.0 and passed.
     @Test("A 3-bet is a real multiple of the open it faces")
     func threeBetIsAMultipleOfTheOpen() {
         let size = raiseTo(pot: 4.0, toCall: 2.5)
-        #expect(size >= 7.0, "3-bet to only \(size)bb over a 2.5bb open")
+        #expect(abs(size - 7.5) < 0.3,
+                "3-bet to \(size)bb over a 2.5bb open; three times it is 7.5bb")
     }
 
-    /// Hero opened to 2.5bb and faces a 3-bet to 9bb, so 6.5bb more to call. A 4-bet is
-    /// a little over twice the 3-bet; 13bb is not a 4-bet.
-    @Test("A 4-bet is a real multiple of the 3-bet it faces")
-    func fourBetIsAMultipleOfTheThreeBet() {
+    /// Villain has raised to 6.5bb and hero has nothing in yet, so hero re-raises to
+    /// three times that.
+    ///
+    /// This test used to describe a different spot from the one it built: its comment and
+    /// its failure message both named a 3-bet to 9bb, but with no `heroWagerThisStreet`
+    /// the solver sees villain at 6.5bb, and the `>= 17.0` floor was satisfied by
+    /// 3 × 6.5 = 19.5 — passing for the wrong reason. The 9bb spot is
+    /// `fourBetSizesOffVillainsRealRaise` below, which threads hero's own raise through.
+    @Test("A re-raise is three times the bet it faces")
+    func reRaiseIsThreeTimesTheBetItFaces() {
         let size = raiseTo(pot: 12.0, toCall: 6.5)
-        #expect(size >= 17.0, "4-bet added only \(size)bb over a 9bb 3-bet")
+        #expect(abs(size - 19.5) < 0.3,
+                "re-raised to \(size)bb over a 6.5bb raise; three times it is 19.5bb")
     }
 
     /// Out of position hero has to charge more: the caller acts last on every street
@@ -191,6 +202,28 @@ struct PreflopSizingTests {
         #expect(withPrior > withoutPrior,
                 "\(withPrior)bb knowing hero opened vs \(withoutPrior)bb not knowing")
         #expect(withPrior >= 21.0, "3x a 7.5bb 3-bet is 22.5bb; sized to \(withPrior)bb")
+    }
+
+    /// The one quadrant of `heroCommitted` nothing else reaches: a seat that posted a
+    /// blind *and* has already raised. `heroCommitted` takes the max of the two rather
+    /// than their sum, and every other test in this file exercises only one of them, so a
+    /// double-count here would be invisible.
+    ///
+    /// Hero completes from the small blind to 2.5bb and faces a 3-bet to 9bb: hero's own
+    /// street total is 2.5, not 3.0 (the blind is inside the raise, not added to it), so
+    /// hero owes 6.5 and a 3× re-raise is 27bb.
+    @Test("A blind that has already raised counts its raise, not raise plus blind")
+    func blindThatHasRaisedIsNotDoubleCounted() {
+        let state = spot(pot: 12.0, toCall: 6.5, position: .sb, heroWagerThisStreet: 2.5)
+        #expect(abs(state.heroCommitted(smallBlind: 0.5) - 2.5) < 1e-9,
+                "hero's street total is \(state.heroCommitted(smallBlind: 0.5)), expected 2.5")
+        #expect(abs(state.villainWagerInBigBlinds(smallBlind: 0.5) - 9.0) < 1e-9,
+                "villain's 9bb 3-bet measured as \(state.villainWagerInBigBlinds(smallBlind: 0.5))bb")
+
+        let size = raiseTo(pot: 12.0, toCall: 6.5, position: .sb, heroWagerThisStreet: 2.5)
+        // Out of position, so 3.5x: 31.5bb.
+        #expect(abs(size - 31.5) < 0.3,
+                "4-bet to \(size)bb; 3.5 times a 9bb 3-bet is 31.5bb")
     }
 
     /// And the read that shares the quantity: a 7.5bb 3-bet is not an opening range.

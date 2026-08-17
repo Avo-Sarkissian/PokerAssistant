@@ -37,7 +37,14 @@ class GameState: ObservableObject {
     /// It decides which seats exist and how far hero's seat is from the button, so it has
     /// to travel with the spot: `playersInHand` cannot stand in for it, because folding
     /// down to heads-up does not move hero's chair.
-    @Published var tableSize: Int = 6
+    ///
+    /// The seat is corrected here rather than at the call sites. Correcting it by hand left
+    /// one call site as the only thing standing between a UTG+2 selection and a
+    /// three-handed table, and a test that invoked the corrector itself could not have
+    /// noticed that call going missing.
+    @Published var tableSize: Int = 6 {
+        didSet { clampSeatToTable() }
+    }
 
     /// Opponents hero is actually up against right now.
     var opponentCount: Int { max(1, playersInHand - 1) }
@@ -123,13 +130,23 @@ class GameState: ObservableObject {
         self.villainStack = stack
         // A fresh hand is dealt to every seat, so the two are the same number here and
         // diverge only as players fold.
-        self.playersInHand = max(2, playersInHand)
+        self.playersInHand = min(9, max(2, playersInHand))
         self.tableSize = self.playersInHand
         // The button is the default seat, but it is not dealt at a two-handed table.
-        position = Position.seats(tableSize: tableSize).contains(.btn) ? .btn : .sb
-        potSize = smallBlind + bigBlind
-        toCall = bigBlind          // a non-blind seat owes the big blind to enter
-        heroWagerThisStreet = 0    // and posts nothing
+        position = Position.btn.exists(tableSize: tableSize) ? .btn : .sb
+
+        // The pot has to follow the seat that was just chosen, not assume one. Writing
+        // `toCall = bigBlind` unconditionally contradicted the line above it heads-up,
+        // where the seat is the small blind: a fresh hand then showed a $1.00 bet into
+        // $0.50 and asked for 40% equity to complete for half a blind, against the true
+        // $0.50 into $1.00 and 25%.
+        let entry = PotEntry.blindsOnly(heroPosition: position,
+                                        smallBlind: smallBlind,
+                                        bigBlind: bigBlind)
+        potSize = entry.totalPot
+        toCall = entry.toCall
+        heroWagerThisStreet = position == .sb ? smallBlind
+            : (position == .bb ? bigBlind : 0)
     }
 
     /// Bring the seat back inside the table after the table size changes.

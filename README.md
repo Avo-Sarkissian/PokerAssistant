@@ -117,7 +117,7 @@ PokerAssistant/
 │   ├── MonteCarloEngine.swift      # Multi-core CPU simulation
 │   ├── EquityCalculator.swift      # Intelligent compute routing
 │   ├── ExploitativeSolver.swift    # Strategy & behavioral analysis
-│   └── OpponentRange.swift         # 169-hand strength rankings
+│   └── OpponentRange.swift         # 169-hand opening-range order, range widths
 │
 ├── Models/
 │   ├── GameState.swift             # Position, stack, pot state

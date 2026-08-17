@@ -104,8 +104,12 @@ class GameViewModel: ObservableObject {
             "\(gameState.bigBlind)",
             "\(gameState.playersInHand)",
             // Which seats exist, and how far hero sits from the button. Leaving it out
-            // let a table-size change go unnoticed while still moving the answer.
+            // let a table-size change go unnoticed while still moving the answer. Both the
+            // mirror and its source are listed: the mirror is written inside `calculate()`,
+            // *after* `canCalculate` has already decided whether to recompute, so on its
+            // own it depends on a view-layer `onChange` in another file having fired first.
             "\(gameState.tableSize)",
+            "\(settings?.numberOfPlayers ?? 0)",
             "\(gameState.heroWagerThisStreet)",
             gameState.position.rawValue,
             gameState.opponentStyle.rawValue,
@@ -128,11 +132,12 @@ class GameViewModel: ObservableObject {
         calculationTask?.cancel()
 
         // The solver reads the blind level and the table size off GameState; Settings is
-        // the source of truth for both, and a seat outside the table is corrected before
-        // the spot is copied rather than being silently reinterpreted downstream.
+        // the source of truth for both. Assigning `tableSize` corrects the seat through
+        // its own `didSet`; players are then seated into the table rather than the table
+        // being grown to fit them, which is what would move hero's chair.
         gameState.bigBlind = settingsToUse.bigBlind
-        gameState.tableSize = max(settingsToUse.numberOfPlayers, gameState.playersInHand)
-        gameState.clampSeatToTable()
+        gameState.tableSize = settingsToUse.numberOfPlayers
+        gameState.playersInHand = min(gameState.tableSize, gameState.playersInHand)
 
         isCalculating = true
         calculationResult = nil

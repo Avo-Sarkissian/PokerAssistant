@@ -55,10 +55,17 @@ struct SettingsBackedStateTests {
 @MainActor
 struct HandLifecycleTests {
 
-    private func makeViewModel(smallBlind: Double, bigBlind: Double) -> (GameViewModel, Settings) {
+    /// `numberOfPlayers` is pinned as well as the blinds. It is `@AppStorage` on the one
+    /// shared `UserDefaults`, so whatever a sibling suite last wrote is what a fresh
+    /// `Settings()` reads — and the fingerprint test below takes its baseline from it. Left
+    /// unpinned, that test set the table size to a value it already had and reported the
+    /// field as missing.
+    private func makeViewModel(smallBlind: Double, bigBlind: Double,
+                               players: Int = 6) -> (GameViewModel, Settings) {
         let settings = Settings()
         settings.smallBlind = smallBlind
         settings.bigBlind = bigBlind
+        settings.numberOfPlayers = players
         let viewModel = GameViewModel()
         viewModel.settings = settings
         return (viewModel, settings)
@@ -111,17 +118,30 @@ struct HandLifecycleTests {
 
         let baseline = viewModel.getCurrentStateString()
 
+        // Each field is changed, checked, then restored — and the restoration is checked
+        // too. Without that, a fingerprint of `UUID().uuidString` would satisfy every
+        // "differs from baseline" assertion below while breaking the app the other way,
+        // and a restore that silently failed would make every later case pass spuriously.
+        func expectRestored(_ what: String) {
+            #expect(viewModel.getCurrentStateString() == baseline,
+                    Comment(rawValue: "restoring \(what) did not return the fingerprint to " +
+                            "its baseline, so the cases after it prove nothing"))
+        }
+
         viewModel.gameState.opponentStyle = .tight
         #expect(viewModel.getCurrentStateString() != baseline, "opponent style is not in the fingerprint")
         viewModel.gameState.opponentStyle = .unknown
+        expectRestored("opponent style")
 
         viewModel.gameState.stack = 999
         #expect(viewModel.getCurrentStateString() != baseline, "stack is not in the fingerprint")
         viewModel.gameState.stack = 20
+        expectRestored("the stack")
 
         viewModel.gameState.playersInHand = 2
         #expect(viewModel.getCurrentStateString() != baseline, "players in hand is not in the fingerprint")
         viewModel.gameState.playersInHand = 6
+        expectRestored("players in hand")
 
         // Hero's own street contribution decides how big villain's raise is read to be,
         // which sets both the range and the re-raise size.
@@ -129,31 +149,46 @@ struct HandLifecycleTests {
         #expect(viewModel.getCurrentStateString() != baseline,
                 "hero's street wager is not in the fingerprint")
         viewModel.gameState.heroWagerThisStreet = 0
+        expectRestored("hero's street wager")
 
         // The seat sets the bluff premium, the open size and the explanation.
         viewModel.gameState.position = .sb
         #expect(viewModel.getCurrentStateString() != baseline, "the seat is not in the fingerprint")
         viewModel.gameState.position = .btn
+        expectRestored("the seat")
 
         // And the table size sets how far that seat is from the button, so the same seat
         // at a different table size is a different spot.
         viewModel.gameState.tableSize = 9
         #expect(viewModel.getCurrentStateString() != baseline, "table size is not in the fingerprint")
         viewModel.gameState.tableSize = 6
+        expectRestored("table size")
+
+        // The table size the *user* set, not only the mirror of it on the game state. The
+        // mirror is written inside `calculate()`, after `canCalculate` has already read the
+        // fingerprint, so on its own it depends on a view-layer `onChange` firing first.
+        settings.numberOfPlayers = 9
+        #expect(viewModel.getCurrentStateString() != baseline,
+                "the configured table size is not in the fingerprint")
+        settings.numberOfPlayers = 6
+        expectRestored("the configured table size")
 
         settings.gameMode = .tournament
         #expect(viewModel.getCurrentStateString() != baseline, "game mode is not in the fingerprint")
         settings.gameMode = .cashGame
+        expectRestored("game mode")
 
         settings.tournamentPhase = .bubble
         #expect(viewModel.getCurrentStateString() != baseline, "tournament phase is not in the fingerprint")
         settings.tournamentPhase = .earlyStage
+        expectRestored("tournament phase")
 
         // The solver rounds every raise to the small blind and computes SPR from the
         // big blind, so a change to either has to invalidate the fingerprint.
         settings.bigBlind = 5.0
         #expect(viewModel.getCurrentStateString() != baseline, "big blind is not in the fingerprint")
         settings.bigBlind = 1.0
+        expectRestored("the big blind")
 
         settings.smallBlind = 0.25
         #expect(viewModel.getCurrentStateString() != baseline, "small blind is not in the fingerprint")
@@ -212,6 +247,11 @@ struct SeatStateTests {
     /// Choosing UTG at a nine-handed table and then switching Settings to three-handed
     /// leaves hero in a chair that is no longer dealt. The correction is explicit and
     /// testable rather than a `default:` case buried in the solver.
+    /// Driven through the assignment, not by calling the corrector. Calling it by hand
+    /// tested the corrector while leaving the thing that has to invoke it uncovered: the
+    /// app depended on one `calculate()` line, and deleting that line — letting a UTG+2
+    /// reach the solver at a three-handed table, the literal #24 failure — would have left
+    /// this suite green.
     @Test("Shrinking the table moves hero out of a seat it no longer deals")
     func shrinkingTheTableMovesHero() {
         let state = GameState()
@@ -219,18 +259,65 @@ struct SeatStateTests {
         state.position = .utg1
 
         state.tableSize = 3
-        state.clampSeatToTable()
         #expect(state.position == .btn, "hero stayed in the \(state.position.rawValue) three-handed")
 
         state.tableSize = 2
-        state.clampSeatToTable()
         #expect(state.position == .sb, "hero stayed in the \(state.position.rawValue) heads-up")
 
         // A seat that still exists is left alone.
         state.tableSize = 6
         state.position = .co
-        state.clampSeatToTable()
+        state.tableSize = 6
         #expect(state.position == .co, "the cutoff exists six-handed and was moved anyway")
+    }
+
+    /// The crash, as a test. `SeatExplanation` exists as a value type precisely so this
+    /// pair can be exercised: a stored seat the table does not deal, which is the state the
+    /// app is in on launch whenever "Players at Table" was left at 2, because `@State`
+    /// cannot be initialised from `Settings` and every corrector runs after the first body.
+    @Test("The seat line renders for every seat at every table size, dealt or not")
+    func seatExplanationNeverTraps() {
+        for tableSize in 2...9 {
+            for seat in Position.allCases {
+                for isPostFlop in [false, true] {
+                    let line = SeatExplanation(seat: seat, tableSize: tableSize,
+                                               smallBlind: 0.5, bigBlind: 1.0,
+                                               isPostFlop: isPostFlop)
+                    #expect(!line.text.isEmpty,
+                            "\(tableSize)-handed \(seat.rawValue) postflop=\(isPostFlop) rendered nothing")
+                    #expect(line.behindPreflop >= 0,
+                            "\(tableSize)-handed \(seat.rawValue): \(line.behindPreflop) seats behind pre-flop")
+                    #expect(line.behindPostflop >= 0,
+                            "\(tableSize)-handed \(seat.rawValue): \(line.behindPostflop) seats behind post-flop")
+                }
+            }
+        }
+    }
+
+    /// And the counts are right where they can be checked by hand.
+    @Test("The seat line counts the seats behind hero correctly")
+    func seatExplanationCountsAreRight() {
+        func line(_ seat: Position, _ tableSize: Int, postflop: Bool) -> SeatExplanation {
+            SeatExplanation(seat: seat, tableSize: tableSize, smallBlind: 0.5,
+                            bigBlind: 1.0, isPostFlop: postflop)
+        }
+        // Six-handed: preflop order UTG HJ CO BTN SB BB, so the button has the two blinds
+        // behind it; postflop order SB BB UTG HJ CO BTN, so the cutoff has only the button.
+        #expect(line(.btn, 6, postflop: false).behindPreflop == 2)
+        #expect(line(.utg, 6, postflop: false).behindPreflop == 5)
+        #expect(line(.co, 6, postflop: true).behindPostflop == 1)
+        #expect(line(.btn, 6, postflop: true).behindPostflop == 0)
+        #expect(line(.sb, 6, postflop: true).behindPostflop == 5)
+
+        // Heads-up: the small blind is the button and acts last after the flop.
+        #expect(line(.sb, 2, postflop: true).behindPostflop == 0)
+        #expect(line(.bb, 2, postflop: true).behindPostflop == 1)
+        #expect(line(.sb, 2, postflop: true).text.contains("last after the flop"))
+        #expect(line(.bb, 2, postflop: true).text.contains("1 seat "),
+                Comment(rawValue: line(.bb, 2, postflop: true).text))
+
+        // Plural agreement, which read "1 player act after you".
+        #expect(!line(.co, 6, postflop: true).text.contains("seats"))
     }
 
     /// The table size has to reach the solver's copy of the spot, or every positional
@@ -248,17 +335,53 @@ struct SeatStateTests {
         #expect(!copy.isInPosition, "the hijack is not the last seat to act nine-handed")
     }
 
-    /// More players contesting a pot than are seated at the table is not a spot, and the
-    /// solver's copy is the last place it can be caught.
-    @Test("The solver's copy never seats fewer players than are in the hand")
-    func tableSizeNeverBelowPlayersInHand() {
+    /// More players contesting a pot than are seated at the table is not a spot. The fix
+    /// is to seat fewer players, never to invent seats: growing the table moves hero's
+    /// chair, and it does so by the largest amount available. This exact input used to
+    /// turn a heads-up small blind — the seat that *holds* the button — into a six-handed
+    /// small blind, flipping `isInPosition` and swinging the bluff premium 1.3 → 0.6.
+    @Test("An impossible player count is seated down, not given extra chairs")
+    func impossiblePlayerCountIsSeatedDown() {
         let state = GameState()
         state.tableSize = 2
         state.position = .sb
         state.playersInHand = 6
 
-        #expect(GameStateCopy(from: state).tableSize >= 6,
-                "six players contested a pot at a table seating \(GameStateCopy(from: state).tableSize)")
+        let copy = GameStateCopy(from: state)
+        #expect(copy.tableSize == 2, "the table grew to \(copy.tableSize) seats")
+        #expect(copy.playersInHand == 2, "\(copy.playersInHand) players at a two-handed table")
+        #expect(copy.position == .sb, "hero was moved to the \(copy.position.rawValue)")
+        #expect(copy.isInPosition, "the heads-up small blind holds the button and acts last")
+    }
+
+    /// A fresh heads-up hand is the small blind completing, not a seat that posted
+    /// nothing facing a full blind. `reset` chose the seat correctly and then wrote a pot
+    /// that contradicted it: $1.00 to call into $0.50, asking 40% equity to complete for
+    /// half a blind, where the truth is $0.50 into $1.00 and 25%.
+    @Test("A fresh heads-up hand is priced as the small blind completing")
+    func headsUpResetPricesTheSmallBlind() {
+        let state = GameState()
+        state.reset(smallBlind: 0.5, bigBlind: 1.0, playersInHand: 2)
+
+        #expect(state.position == .sb)
+        #expect(state.potSize == 1.5, "pot is \(state.potSize)")
+        #expect(state.toCall == 0.5, "hero owes \(state.toCall), not the 0.5 completion")
+        #expect(state.heroWagerThisStreet == 0.5,
+                "hero is recorded as having posted \(state.heroWagerThisStreet)")
+    }
+
+    /// Every table size, so the pot and the seat can never disagree again.
+    @Test("A reset hand's pot matches the seat it chose", arguments: 2...9)
+    func resetPotMatchesTheChosenSeat(players: Int) {
+        let state = GameState()
+        state.reset(smallBlind: 0.5, bigBlind: 1.0, playersInHand: players)
+
+        let expected = PotEntry.blindsOnly(heroPosition: state.position,
+                                           smallBlind: 0.5, bigBlind: 1.0)
+        #expect(state.potSize == expected.totalPot,
+                "\(players)-handed \(state.position.rawValue): pot \(state.potSize), expected \(expected.totalPot)")
+        #expect(state.toCall == expected.toCall,
+                "\(players)-handed \(state.position.rawValue): owes \(state.toCall), expected \(expected.toCall)")
     }
 }
 
@@ -441,6 +564,10 @@ struct PlayersInHandTests {
                 state.holeCards = [card("Ad"), card("Ac")]
                 state.potSize = 10
                 state.toCall = 0
+                // Seats before players: `GameStateCopy` now seats players into the table
+                // rather than growing the table to fit them, so a nine-way pot needs a
+                // nine-handed table or the count is clamped back to the default six.
+                state.tableSize = 9
                 state.playersInHand = playersInHand
             }
             let result = try await CalculationViewModel()

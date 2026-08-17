@@ -14,6 +14,28 @@ import PokerTestSupport
 @Suite("Seats at the table")
 struct SeatTests {
 
+    /// The full seat list at every table size, written out. Everything else here checks a
+    /// property, and properties missed the defect that matters most: transposing LJ and HJ
+    /// at a seven-handed table — the wrong convention, and the order the bluff premium is
+    /// ranked by — left every test in the suite green. Golden arrays are the only thing
+    /// that pins the middle seats.
+    @Test("The seats at each table size are exactly these", arguments: [
+        (2, [Position.sb, .bb]),
+        (3, [Position.btn, .sb, .bb]),
+        (4, [Position.co, .btn, .sb, .bb]),
+        (5, [Position.utg, .co, .btn, .sb, .bb]),
+        (6, [Position.utg, .hj, .co, .btn, .sb, .bb]),
+        (7, [Position.utg, .lj, .hj, .co, .btn, .sb, .bb]),
+        (8, [Position.utg, .utg1, .lj, .hj, .co, .btn, .sb, .bb]),
+        (9, [Position.utg, .utg1, .utg2, .lj, .hj, .co, .btn, .sb, .bb]),
+    ])
+    func seatsAreExactlyThese(tableSize: Int, expected: [Position]) {
+        let seats = Position.seats(tableSize: tableSize)
+        #expect(seats == expected,
+                Comment(rawValue: "\(tableSize)-handed is \(seats.map(\.rawValue)) " +
+                        "but should be \(expected.map(\.rawValue))"))
+    }
+
     @Test("Every seat at the table is a selectable seat", arguments: 2...9)
     func seatCountMatchesTableSize(tableSize: Int) {
         let seats = Position.seats(tableSize: tableSize)
@@ -53,8 +75,8 @@ struct SeatTests {
     ///
     /// Only those. The earliest seat is named for *acting first*, so which physical
     /// chair "UTG" refers to depends on how many are occupied — six-handed UTG is four
-    /// seats off the button, nine-handed UTG is seven. That is why relative position is
-    /// a function of the table size rather than a property of the seat.
+    /// seats off the button, nine-handed UTG is seven. That is why every positional read
+    /// takes the table size rather than treating position as a property of the seat.
     @Test("The seats named from the button sit at the end of every table", arguments: 4...9)
     func buttonAnchoredSeatsAreASuffix(tableSize: Int) {
         let seats = Position.seats(tableSize: tableSize)
@@ -68,19 +90,31 @@ struct SeatTests {
                 "\(tableSize)-handed opens on \(Position.seats(tableSize: tableSize).first?.rawValue ?? "nobody")")
     }
 
-    /// No orphaned increments: a table with a UTG+2 has a UTG+1 and a UTG.
-    @Test("Numbered seats arrive in order", arguments: 2...9)
-    func numberedSeatsArriveInOrder(tableSize: Int) {
+    /// No orphaned increments, stated as when each numbered seat appears rather than as a
+    /// conditional. The conditional form asserted nothing at six of its eight table sizes,
+    /// and Swift Testing reports an expectation-free case as passing.
+    @Test("Numbered seats appear only once the table is big enough", arguments: 2...9)
+    func numberedSeatsAppearOnlyWhenSeated(tableSize: Int) {
         let seats = Set(Position.seats(tableSize: tableSize))
-        if seats.contains(.utg2) { #expect(seats.contains(.utg1), "\(tableSize)-handed has UTG+2 but no UTG+1") }
-        if seats.contains(.utg1) { #expect(seats.contains(.utg), "\(tableSize)-handed has UTG+1 but no UTG") }
+        #expect(seats.contains(.utg1) == (tableSize >= 8),
+                "\(tableSize)-handed \(seats.contains(.utg1) ? "has" : "lacks") a UTG+1")
+        #expect(seats.contains(.utg2) == (tableSize >= 9),
+                "\(tableSize)-handed \(seats.contains(.utg2) ? "has" : "lacks") a UTG+2")
+        if seats.contains(.utg2) { #expect(seats.contains(.utg1) && seats.contains(.utg)) }
     }
 
-    @Test("A table size outside 2–9 is clamped rather than left empty", arguments: [-3, 0, 1, 10, 99])
-    func tableSizeIsClamped(tableSize: Int) {
+    /// Clamped to the *nearest* supported size, which a range check cannot tell from a
+    /// clamp in the wrong direction: making `clamped` return 9 for everything satisfied
+    /// `count >= 2 && count <= 9` at every input, so a request for a one-handed table
+    /// answered with nine seats.
+    @Test("A table size outside 2–9 clamps to the nearest supported size",
+          arguments: [(-3, 2), (0, 2), (1, 2), (2, 2), (9, 9), (10, 9), (99, 9)])
+    func tableSizeClampsToTheNearestSupportedSize(tableSize: Int, expected: Int) {
         let seats = Position.seats(tableSize: tableSize)
-        #expect(seats.count >= 2 && seats.count <= 9,
-                "\(tableSize) players produced \(seats.count) seats")
+        #expect(seats.count == expected,
+                "\(tableSize) players produced \(seats.count) seats, expected \(expected)")
+        #expect(seats == Position.seats(tableSize: expected),
+                "\(tableSize) produced a different seat list from \(expected)")
     }
 }
 
@@ -124,39 +158,73 @@ struct PostflopPositionTests {
         #expect(order.last == .btn)
     }
 
-    /// Bluffing more from later position is the one thing the seat multiplier is for, so
-    /// it has to be monotone in when hero acts. Nine hand-written constants are not
-    /// monotone by construction; a ramp over the postflop order is.
-    @Test("The bluff premium rises monotonically with position", arguments: 2...9)
-    func bluffPremiumIsMonotone(tableSize: Int) {
-        let order = Position.postflopOrder(tableSize: tableSize)
-        let premiums = order.map { $0.bluffFrequencyMultiplier(tableSize: tableSize) }
-
-        let ladder = zip(order, premiums)
-            .map { "\($0.0.rawValue) \(String(format: "%.3f", $0.1))" }
-            .joined(separator: " ")
-        for (earlier, later) in zip(premiums, premiums.dropFirst()) {
-            #expect(later > earlier,
-                    Comment(rawValue: "\(tableSize)-handed premiums are not increasing: \(ladder)"))
+    /// The bluff premium is the two values the three-seat version used — 1.3 for the seat
+    /// that acts last, 0.6 for everyone else — and it must not depend on the table size
+    /// beyond deciding which seat that is.
+    ///
+    /// It was briefly a ramp interpolating those two ends across all nine seats. That is
+    /// why this test is written against the *value* rather than against the ordering: the
+    /// ramp was monotone in the postflop order by construction, so a monotonicity check
+    /// over that same order was an identity and stayed green when the order itself was
+    /// wrong.
+    @Test("The bluff premium is the seat's, and does not drift with the table size",
+          arguments: 2...9)
+    func bluffPremiumIsTheSeatsAlone(tableSize: Int) {
+        for seat in Position.seats(tableSize: tableSize) {
+            let premium = seat.bluffFrequencyMultiplier(tableSize: tableSize)
+            let expected = seat.isInPosition(tableSize: tableSize) ? 1.3 : 0.6
+            #expect(abs(premium - expected) < 1e-9,
+                    "\(tableSize)-handed \(seat.rawValue) got \(premium), expected \(expected)")
         }
-        // The two ends are the values the three-seat table already used, kept so this is
-        // a re-shaping of the old constants rather than a new set of them.
-        #expect(abs(premiums.first! - 0.6) < 1e-9, "first to act got \(premiums.first!)")
-        #expect(abs(premiums.last! - 1.3) < 1e-9, "last to act got \(premiums.last!)")
     }
 
-    /// A seat that cannot exist at the given table size is read at the smallest table
-    /// that does seat it, never remapped to another seat. The UI cannot produce this
-    /// pair, but a stored hand or a test can, and silently turning a cutoff into a
-    /// button is the defect this whole enum exists to remove.
-    @Test("A seat absent from a small table is not remapped to another seat")
-    func absentSeatIsWidenedNotRemapped() {
-        // Three-handed has no cutoff. Reading one must not make it the button.
-        #expect(!Position.co.isInPosition(tableSize: 3),
-                "the cutoff was read as the seat that acts last at a three-handed table")
-        #expect(Position.co.bluffFrequencyMultiplier(tableSize: 3)
-                == Position.co.bluffFrequencyMultiplier(tableSize: 4),
+    /// The concrete regression: one physical spot must not be priced differently because
+    /// seats that are not in the hand exist. Hero is in the big blind against a single
+    /// villain, and acts first against that villain whatever the table seats.
+    @Test("The same seat gets the same premium at every table size")
+    func premiumDoesNotVaryWithSeatsThatFolded() {
+        let premiums = (2...9).map { Position.bb.bluffFrequencyMultiplier(tableSize: $0) }
+        #expect(Set(premiums.map { ($0 * 1e9).rounded() }).count == 1,
+                Comment(rawValue: "the big blind's premium moves with the table size: " +
+                        (2...9).map { "\($0)p \(String(format: "%.3f", Position.bb.bluffFrequencyMultiplier(tableSize: $0)))" }
+                            .joined(separator: " ")))
+        #expect(abs(premiums.first! - 0.6) < 1e-9)
+    }
+
+    /// A seat the table does not deal is not in position at that table. Widening it until
+    /// it exists — which `postflopActionIndex` does, so that a cutoff is never read as
+    /// some *other* seat — would otherwise report a button as last to act at a two-handed
+    /// table that has no button, which is where the ramp's own test could not see it: that
+    /// test filtered by `seats(tableSize:)` first and so excluded the offending pair.
+    @Test("A seat the table does not deal is not in position at that table")
+    func unseatedSeatIsNotInPosition() {
+        #expect(!Position.btn.exists(tableSize: 2))
+        #expect(!Position.btn.isInPosition(tableSize: 2),
+                "a two-handed table with no button reported one as last to act")
+        #expect(abs(Position.btn.bluffFrequencyMultiplier(tableSize: 2) - 0.6) < 1e-9,
+                "an unseated button collected the in-position bluff premium")
+
+        // Three-handed has no cutoff either, and reading one must not make it the button.
+        #expect(!Position.co.isInPosition(tableSize: 3))
+
+        // Across every seat and table size, exactly the dealt seats can be in position.
+        for tableSize in 2...9 {
+            for seat in Position.allCases where !seat.exists(tableSize: tableSize) {
+                #expect(!seat.isInPosition(tableSize: tableSize),
+                        "\(seat.rawValue) is not dealt \(tableSize)-handed but reads as in position")
+            }
+        }
+    }
+
+    /// The widening still holds where it is meant to: a seat absent from a small table is
+    /// read at the smallest table that seats it, never remapped onto a different seat.
+    @Test("An absent seat keeps its own identity in the action order")
+    func absentSeatKeepsItsIdentity() {
+        #expect(Position.co.postflopActionIndex(tableSize: 3)
+                == Position.co.postflopActionIndex(tableSize: 4),
                 "the cutoff at a table too small to seat it should read as a four-handed cutoff")
+        #expect(Position.utg2.postflopActionIndex(tableSize: 2)
+                == Position.utg2.postflopActionIndex(tableSize: 9))
     }
 }
 
@@ -165,11 +233,28 @@ struct PostflopPositionTests {
 @Suite("Seat parsing")
 struct SeatParsingTests {
 
-    /// Every seat must survive a round trip through its stored form: hand history is
-    /// persisted as text, and a seat that fails to parse used to become the button.
-    @Test("Every seat round-trips through its stored name", arguments: Position.allCases)
-    func seatsRoundTrip(seat: Position) {
-        #expect(Position(rawValue: seat.rawValue) == seat)
+    /// The seat names the app has already written into stored hand history must still
+    /// parse. Hand history keeps the seat as text, and while nothing currently reads one
+    /// back into a `Position`, anything that starts to must not silently fail on records
+    /// written before this type existed.
+    ///
+    /// A round trip through `Position(rawValue: seat.rawValue)` over `allCases` was tried
+    /// here first and is worthless: `init?(rawValue:)` is compiler-synthesised for a
+    /// `String`-raw enum and duplicate raw values will not compile, so no production edit
+    /// can make it fail while the file still builds.
+    @Test("The seat names already in stored hand history still parse",
+          arguments: ["BTN", "SB", "BB"])
+    func previouslyPersistedSeatsStillParse(stored: String) {
+        #expect(Position(rawValue: stored) != nil, "a stored \(stored) no longer parses")
+    }
+
+    /// And every seat's stored form is the label the picker shows, so a record reads the
+    /// way the app read when it was written.
+    @Test("Each seat's stored name is its display label", arguments: Position.allCases)
+    func storedNameIsTheDisplayLabel(seat: Position) {
+        #expect(!seat.rawValue.isEmpty)
+        #expect(seat.rawValue == seat.rawValue.uppercased(),
+                "\(seat.rawValue) is not in the form the picker renders")
     }
 
     /// The old `init(from: String)` had `default: self = .btn`, so an unrecognised seat

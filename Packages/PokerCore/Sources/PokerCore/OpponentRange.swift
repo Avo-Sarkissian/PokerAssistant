@@ -26,25 +26,33 @@ public struct OpponentRange {
     /// `PreflopHandClassTests`), and AKs stands above JJ while JJ holds eleven points
     /// more. Reading this list as a strength order is exactly the mistake that graded
     /// hero's own hand: see `openingRangeRank`.
+    ///
+    /// The tier boundaries below are load-bearing, not decoration:
+    /// `ExploitativeSolver.HandStrength(openingRangeRank:)` grades hero's preflop hand on
+    /// them, so moving one changes the app's advice. They are named for how often the band
+    /// is opened, which is what the ordering measures — the earlier "Premium / Strong /
+    /// Weak / Trash" labels were strength words on a frequency scale, the same confusion
+    /// the paragraph above exists to retract. Two of the ranges were also off by one; the
+    /// counts here are the real ones.
     private static let rankedHands: [String] = [
-            // Tier 1: Premium (0-4)
+            // Tier 1: opened from anywhere, always (0-4)
             "AA", "KK", "QQ", "AKs", "JJ",
-            // Tier 2: Strong (5-12)
+            // Tier 2: opened from anywhere (5-12)
             "AQs", "TT", "AKo", "AJs", "KQs", "99", "ATs", "AQo",
-            // Tier 3: Good (13-25)
+            // Tier 3: opened from middle position and later (13-25)
             "KJs", "88", "QJs", "KTs", "AJo", "A9s", "KQo", "A8s", "QTs", "77", "ATo", "JTs", "A7s",
-            // Tier 4: Playable (26-45)
+            // Tier 4: opened from late position (26-45)
             "KJo", "A5s", "A6s", "66", "A4s", "K9s", "QJo", "A3s", "Q9s", "J9s", "KTo", "A2s", "55",
             "T9s", "K8s", "QTo", "K7s", "JTo", "44", "Q8s",
-            // Tier 5: Marginal (46-75)
+            // Tier 5: opened from the cutoff and button (46-76)
             "K6s", "J8s", "98s", "33", "T8s", "K5s", "A9o", "K4s", "Q7s", "K3s", "97s", "J7s", "Q6s",
             "22", "K2s", "87s", "A8o", "Q5s", "T7s", "Q4s", "J9o", "76s", "A7o", "Q3s", "96s", "J6s",
             "A5o", "Q2s", "T9o", "65s", "A6o",
-            // Tier 6: Weak (76-110)
+            // Tier 6: button opens and blind defence only (77-110)
             "86s", "J5s", "A4o", "K9o", "75s", "J4s", "T6s", "54s", "Q9o", "A3o", "J3s", "95s", "K8o",
             "64s", "J2s", "T5s", "98o", "A2o", "K7o", "85s", "T4s", "53s", "Q8o", "74s", "T3s", "K6o",
             "T2s", "87o", "43s", "Q7o", "97o", "J8o", "K5o", "94s",
-            // Tier 7: Trash (111-168)
+            // Tier 7: not opened (111-168)
             "63s", "84s", "K4o", "T8o", "92s", "76o", "K3o", "52s", "Q6o", "65o", "93s", "42s", "K2o",
             "73s", "J7o", "Q5o", "86o", "82s", "96o", "Q4o", "54o", "32s", "J6o", "75o", "83s", "Q3o",
             "T7o", "J5o", "Q2o", "64o", "72s", "62s", "J4o", "85o", "T6o", "53o", "J3o", "95o", "43o",
@@ -102,14 +110,16 @@ public struct OpponentRange {
 
     /// Where a hand sits in the opening-range order (0 = AA, 168 = 72o).
     ///
-    /// Named for its one job: deciding which holdings a range of a given width contains.
-    /// It was called `handStrength`, and under that name the solver used it to grade
-    /// *hero's* hand into monster/strong/medium/weak/bluff — a different question, with a
-    /// different right answer. That produced the inversion this rename exists to prevent:
-    /// K6o graded above 65s despite ranking 27 places worse, because the tiers only
-    /// covered ranks 0–75 and everything past that fell through to an equity test, so the
-    /// two hands were graded on two different scales. Hero's grade now comes from equity
-    /// on every street, and this ordering has one consumer again — `isHandInRange`.
+    /// Two things read this, and the name says which question it answers so that the
+    /// second one is at least honest about borrowing it. `isHandInRange` uses it for what
+    /// it measures: which holdings a range of a given width contains.
+    /// `ExploitativeSolver.HandStrength(openingRangeRank:)` uses it as a stand-in for
+    /// hero's preflop *strength*, which is a different question — 65s ranks 27 places
+    /// above K6o and holds eleven points less all-in equity. That approximation is
+    /// deliberate and documented there; what is not tolerable, and is what the old name
+    /// `handStrength` concealed, is grading part of the range on this scale and the rest
+    /// on equity, which is how K6o came to grade *above* 65s. The grade ladder is total
+    /// and monotone in this rank now, so a better-ranked hand can never grade weaker.
     public static func openingRangeRank(_ card1: Card, _ card2: Card) -> Int {
         let hand = canonicalHand(card1, card2)
         return handRankings[hand] ?? 168

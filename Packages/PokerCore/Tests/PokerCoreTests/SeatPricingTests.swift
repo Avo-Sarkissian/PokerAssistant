@@ -4,80 +4,123 @@ import Foundation
 import PokerTestSupport
 
 /// Backlog #24: the solver knew three seats, so a nine-handed table's other six were
-/// priced as buttons. This suite is the guard on the fix — every seat has to reach a
-/// different answer, and the answers have to be ordered the way the seats are.
+/// priced as buttons. This suite is the guard on the fix.
+///
+/// Note what it does **not** claim. An earlier version of this file asserted that all nine
+/// seats price a bluff differently, which held only because the bluff premium was then a
+/// ramp over the table size — and that ramp was wrong: it priced one identical spot across
+/// a 40% range on nothing but how many seats had already folded. Position reaches the
+/// solver through two binary facts, so two groups is all there is: whether hero acts last
+/// after the flop, and whether hero posted a blind. The defect being guarded is that a
+/// non-button seat was priced *as the button*, not that every seat differs.
 @Suite("Seats reach the solver")
 struct SeatPricingTests {
 
     private let solver = ExploitativeSolver()
 
-    /// Bluffing is the adjustment position drives, so a bluff is where two seats being
-    /// treated as one shows up. Before the fix, UTG through BTN — and any unrecognised
-    /// string — produced a raise EV of 29.2432 to four decimal places.
-    @Test("No two seats price the same bluff identically")
-    func everySeatPricesABluffDifferently() {
-        let tableSize = 6
-        let priced = Position.seats(tableSize: tableSize).map { seat -> (Position, Double) in
-            let result = solver.solve(
-                gameState: spot(board: "Ks 7h 2d", pot: 40, toCall: 0, stack: 400,
-                                villainStack: 400, position: seat, tableSize: tableSize),
-                myEquity: 0.30, settings: makeSettings())
-            return (seat, result.evRaise)
-        }
-
-        let report = priced.map { "\($0.0.rawValue) \(String(format: "%.4f", $0.1))" }
-            .joined(separator: ", ")
-        #expect(Set(priced.map { ($0.1 * 1e6).rounded() }).count == tableSize,
-                Comment(rawValue: "seats collapsed onto each other: \(report)"))
+    private func bluffEV(_ seat: Position, tableSize: Int = 6) -> Double {
+        solver.solve(gameState: spot(board: "Ks 7h 2d", pot: 40, toCall: 0, stack: 400,
+                                     villainStack: 400, position: seat, tableSize: tableSize),
+                     myEquity: 0.30, settings: makeSettings()).evRaise
     }
 
-    /// And they are ordered: acting later is worth more to a bluff. Compared among the
-    /// five seats that are out of position, which share a bet size — the button bets a
-    /// different amount, so it is not a like-for-like comparison and is checked
-    /// separately below.
-    @Test("A bluff is worth more from a later seat")
-    func laterSeatsPriceBluffsHigher() {
-        let tableSize = 6
-        func bluffEV(_ seat: Position) -> Double {
-            solver.solve(gameState: spot(board: "Ks 7h 2d", pot: 40, toCall: 0, stack: 400,
-                                         villainStack: 400, position: seat, tableSize: tableSize),
-                         myEquity: 0.30, settings: makeSettings()).evRaise
+    /// The defect itself: every seat from under the gun to the cutoff — and the literal
+    /// string "banana", which the old string parser mapped to `.btn` — produced a raise EV
+    /// of 29.2432 to four decimal places, the button's number. No seat but the button may
+    /// reach it.
+    @Test("No seat but the button is priced as the button", arguments: 2...9)
+    func noSeatIsPricedAsTheButton(tableSize: Int) {
+        let seats = Position.seats(tableSize: tableSize)
+        let inPosition = seats.filter { $0.isInPosition(tableSize: tableSize) }
+        #expect(inPosition.count == 1)
+        let last = inPosition[0]
+        let lastEV = bluffEV(last, tableSize: tableSize)
+
+        for seat in seats where seat != last {
+            #expect(bluffEV(seat, tableSize: tableSize) < lastEV - 1e-6,
+                    Comment(rawValue: "\(tableSize)-handed \(seat.rawValue) prices a bluff at " +
+                            "\(bluffEV(seat, tableSize: tableSize)), at or above the " +
+                            "\(last.rawValue)'s \(lastEV)"))
+        }
+    }
+
+    /// And the premium does not leak the table size: the same seat, the same one villain,
+    /// the same board must price the same bluff identically however many chairs the table
+    /// has. Measured before the fix, with one villain in every row: the big blind ran
+    /// 17.67 two-handed, 24.72 three-handed, 20.49 six-handed, 19.69 eight-handed.
+    ///
+    /// Three-handed and up, where every seat's role is fixed. Heads-up is the one genuine
+    /// exception — the small blind holds the button there and is in position, which is the
+    /// inversion `headsUpSmallBlindIsInPosition` exists to pin — so including it here
+    /// would assert the opposite of that.
+    @Test("A seat prices a bluff the same at every table size that seats it")
+    func bluffPriceDoesNotDriftWithTheTableSize() {
+        for seat in Position.allCases {
+            let sizes = (3...9).filter { seat.exists(tableSize: $0) }
+            let evs = sizes.map { bluffEV(seat, tableSize: $0) }
+            #expect(Set(evs.map { ($0 * 1e6).rounded() }).count == 1,
+                    Comment(rawValue: "\(seat.rawValue) drifts with the table size: " +
+                            zip(sizes, evs).map { "\($0.0)p \(String(format: "%.4f", $0.1))" }
+                                .joined(separator: " ")))
         }
 
-        let outOfPosition = Position.postflopOrder(tableSize: tableSize)
-            .filter { !$0.isInPosition(tableSize: tableSize) }
-        let evs = outOfPosition.map { ($0, bluffEV($0)) }
-        for (earlier, later) in zip(evs, evs.dropFirst()) {
-            #expect(later.1 > earlier.1,
-                    Comment(rawValue: "\(later.0.rawValue) \(later.1) is not above " +
-                            "\(earlier.0.rawValue) \(earlier.1)"))
-        }
-
-        #expect(bluffEV(.btn) > evs.last!.1,
-                "the button priced a bluff at \(bluffEV(.btn)), below the cutoff's \(evs.last!.1)")
+        // The exception, stated: the small blind is the only seat whose role changes, and
+        // it changes exactly once, between heads-up and three-handed.
+        #expect(bluffEV(.sb, tableSize: 2) > bluffEV(.sb, tableSize: 3),
+                "heads-up the small blind holds the button and should price a bluff higher")
+        #expect(abs(bluffEV(.bb, tableSize: 2) - bluffEV(.bb, tableSize: 3)) < 1e-9,
+                "the big blind is out of position at every table size")
     }
 
     /// The seat only changes the *size* of a preflop open through whether hero posted a
     /// blind. A cutoff opens the same 2.5bb a button does, by convention; keying the size
     /// on "acts last after the flop" would have made every seat but the button open like
     /// a small blind.
+    ///
+    /// The expected sizes are written out per seat rather than derived from `postsABlind`.
+    /// Deriving them made this test tautological on the very predicate it claims to guard:
+    /// adding `.btn` to `postsABlind` — literally the bug the paragraph above describes —
+    /// moved both sides of the comparison together and all eight cases passed.
+    private static let expectedOpenInBlinds: [Position: Double] = [
+        .utg: 2.5, .utg1: 2.5, .utg2: 2.5, .lj: 2.5, .hj: 2.5, .co: 2.5, .btn: 2.5,
+        .sb: 3.0, .bb: 3.0,
+    ]
+
     @Test("Only the blinds open larger", arguments: 2...9)
     func onlyBlindsOpenLarger(tableSize: Int) {
-        func openTo(_ seat: Position) -> Double {
+        func openTo(_ seat: Position) -> (size: Double, committed: Double) {
             let entry = PotEntry.blindsOnly(heroPosition: seat, smallBlind: 0.5, bigBlind: 1.0)
             let heroBlind = seat == .sb ? 0.5 : (seat == .bb ? 1.0 : 0.0)
             let state = spot(pot: entry.totalPot, toCall: entry.toCall, stack: 100,
                              villainStack: 100, position: seat, tableSize: tableSize,
                              heroWagerThisStreet: heroBlind)
             let result = solver.solve(gameState: state, myEquity: 0.55, settings: makeSettings())
-            return heroBlind + entry.toCall + result.raiseAmount
+            // `committed` is checked separately: the blind is fed in through
+            // `heroWagerThisStreet`, which `heroCommitted` floors at `blindPosted`, so a
+            // `blindPosted` returning 0 would be invisible here otherwise.
+            return (heroBlind + entry.toCall + result.raiseAmount,
+                    state.heroCommitted(smallBlind: 0.5))
         }
 
         for seat in Position.seats(tableSize: tableSize) {
-            let expected = seat.postsABlind ? 3.0 : 2.5
-            #expect(abs(openTo(seat) - expected) < 1e-9,
+            let measured = openTo(seat)
+            let expected = Self.expectedOpenInBlinds[seat]!
+            #expect(abs(measured.size - expected) < 1e-9,
                     Comment(rawValue: "\(tableSize)-handed \(seat.rawValue) opened to " +
-                            "\(openTo(seat))bb, expected \(expected)bb"))
+                            "\(measured.size)bb, expected \(expected)bb"))
+
+            // Pinned against `blindPosted` directly, not through `heroCommitted`. The
+            // helper feeds the blind in as `heroWagerThisStreet`, and `heroCommitted`
+            // takes the *max* of the two, so a `blindPosted` returning nothing is
+            // invisible from either the size or the committed total.
+            let blind = seat == .sb ? 0.5 : (seat == .bb ? 1.0 : 0.0)
+            #expect(abs(measured.committed - blind) < 1e-9,
+                    Comment(rawValue: "\(seat.rawValue) is recorded as having committed " +
+                            "\(measured.committed), not its \(blind) blind"))
+            let unwagered = spot(pot: 1.5, toCall: 1.0, position: seat, tableSize: tableSize)
+            #expect(abs(unwagered.blindPosted(smallBlind: 0.5) - blind) < 1e-9,
+                    Comment(rawValue: "\(seat.rawValue) posts " +
+                            "\(unwagered.blindPosted(smallBlind: 0.5)), not \(blind)"))
         }
     }
 

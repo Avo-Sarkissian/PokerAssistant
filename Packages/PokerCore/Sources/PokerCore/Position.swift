@@ -59,11 +59,13 @@ public enum Position: String, CaseIterable, Codable, Sendable, Hashable, Identif
         Self.seats(tableSize: tableSize).contains(self)
     }
 
-    /// The order seats act **postflop**: the blinds first, the button last — the reverse
-    /// of preflop for the three seats at the end.
+    /// The order seats act **postflop**: the blinds first, then the seats in preflop
+    /// order, so the button is last. A rotation of the two blinds to the front, not a
+    /// reversal — `seats(6)` ends `[BTN, SB, BB]` and `postflopOrder(6)` begins
+    /// `[SB, BB]` and ends on the button.
     ///
-    /// Heads-up inverts: the small blind is the button, so it acts *first* preflop and
-    /// *last* afterwards.
+    /// Heads-up inverts instead: the small blind is the button, so it acts *first*
+    /// preflop and *last* afterwards.
     public static func postflopOrder(tableSize: Int) -> [Position] {
         let n = clamped(tableSize)
         guard n > 2 else { return [.bb, .sb] }
@@ -79,25 +81,30 @@ public enum Position: String, CaseIterable, Codable, Sendable, Hashable, Identif
     /// A seat the table is too small to hold is read at the smallest table that does hold
     /// it, never remapped to a different seat. The picker cannot produce that pair, but a
     /// stored hand or a test can, and quietly turning a cutoff into a button is the whole
-    /// defect this type exists to remove.
+    /// defect this type exists to remove. Every seat is present in the order at its own
+    /// smallest table, so the lookup below cannot miss.
     public func postflopActionIndex(tableSize: Int) -> Int {
         let n = max(Self.clamped(tableSize), smallestTableSeatingThis)
         return Self.postflopOrder(tableSize: n).firstIndex(of: self) ?? 0
     }
 
-    /// Hero acts last after the flop — the button, or the small blind heads-up.
+    /// Hero acts last after the flop: the button, or the small blind heads-up.
+    ///
+    /// **Definitely** last, which is not the same as "last against the players still in
+    /// the hand." A cutoff whose button has folded also acts last, and the app cannot
+    /// know that — it tracks how many players are live, not which seats they hold. So a
+    /// cutoff heads-up on the flop reads out of position here and is sized 1.1× rather
+    /// than 0.9×. That is the conservative direction and it is wrong; correcting it needs
+    /// an input the app does not collect, and inventing a rule for it is a strategic
+    /// change queued behind the external validation harness.
+    ///
+    /// A seat the table does not deal is not in position at that table. Widening the
+    /// table until the seat exists — which `postflopActionIndex` does — would otherwise
+    /// report a button as last to act at a two-handed table that has no button.
     public func isInPosition(tableSize: Int) -> Bool {
-        let n = max(Self.clamped(tableSize), smallestTableSeatingThis)
+        let n = Self.clamped(tableSize)
+        guard exists(tableSize: n) else { return false }
         return postflopActionIndex(tableSize: n) == n - 1
-    }
-
-    /// 0 for the first seat to act postflop, 1 for the last. The scale every positional
-    /// adjustment is expressed on, so that adding a seat cannot leave a gap in the
-    /// middle of a hand-written table.
-    public func relativePosition(tableSize: Int) -> Double {
-        let n = max(Self.clamped(tableSize), smallestTableSeatingThis)
-        guard n > 1 else { return 1 }
-        return Double(postflopActionIndex(tableSize: n)) / Double(n - 1)
     }
 
     /// Hero posted a blind, so hero is out of position against the whole field and
@@ -112,20 +119,25 @@ public enum Position: String, CaseIterable, Codable, Sendable, Hashable, Identif
 
     // MARK: - Positional adjustments
 
-    /// How much more (or less) fold equity a bluff earns from this seat.
+    /// How much more (or less) fold equity a bluff earns from this seat: the two values
+    /// the three-seat version used, now asked of the right seats.
     ///
-    /// A ramp over the postflop order rather than one constant per seat. The two ends are
-    /// the values the three-seat version used — 0.6 for the first to act, 1.3 for the
-    /// last — so this re-shapes those constants instead of introducing nine new ones, and
-    /// it is monotone in when hero acts by construction. Nine independent numbers are not:
-    /// the ones being replaced had the small blind below the big blind, which is right,
-    /// and nothing in between to be wrong about.
+    /// This was briefly a ramp over the postflop order, interpolating 0.6 to 1.3 across
+    /// all nine seats. That was wrong, and measurably so. Postflop only *live* players
+    /// act, and the ramp divided by the table size, so one identical spot — hero in the
+    /// big blind, one villain, 30% equity on a dry flop — priced across a 40% range on
+    /// nothing but how many seats had already folded: raise EV 17.67 two-handed, 24.72
+    /// three-handed, 20.49 six-handed. There is one villain in all three, hero acts first
+    /// against that villain in all three, and the ramp's own definition demands the same
+    /// answer each time. Relative position among the live players is not derivable from a
+    /// seat and a headcount, so the model does not pretend to it.
     ///
-    /// The shape is a straight line, and that is a guess — a real curve would be flatter
-    /// through the early seats. It is hand-authored like everything else here and is on
-    /// the list for the external validation harness.
+    /// The term itself is still suspect and is on the list for the validation harness:
+    /// villain cannot see hero's cards, so hero's *hand* should not move villain's fold
+    /// rate at all, and villain can see hero's *seat* — which argues the sign is backwards,
+    /// since a late-position bettor is credited with a wider range and called looser.
     public func bluffFrequencyMultiplier(tableSize: Int) -> Double {
-        0.6 + 0.7 * relativePosition(tableSize: tableSize)
+        isInPosition(tableSize: tableSize) ? 1.3 : 0.6
     }
 
     /// Hero's total street contribution when opening an unopened pot, in big blinds.
