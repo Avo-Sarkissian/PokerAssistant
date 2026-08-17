@@ -44,6 +44,12 @@ class GameState: ObservableObject {
     }
     
     @Published var bigBlind: Double = 1.0
+
+    /// What hero has already put into this street — a posted blind, plus any raise hero
+    /// has already made. `potSize` is the flattened total and cannot be decomposed, so
+    /// this is tracked alongside it: without it villain's raise is understated by hero's
+    /// own, which reads a 3-bet as an opening range and under-sizes every 4-bet.
+    @Published var heroWagerThisStreet: Double = 0
     
     /// Hero's stack measured in big blinds (a display figure).
     var effectiveStack: Double {
@@ -103,6 +109,7 @@ class GameState: ObservableObject {
         self.playersInHand = max(2, playersInHand)
         potSize = smallBlind + bigBlind
         toCall = bigBlind          // the button owes the big blind to enter
+        heroWagerThisStreet = 0    // the button posts nothing
     }
     
     // Add methods to update pot values
@@ -131,7 +138,8 @@ extension GameStateCopy {
             toCall: gameState.toCall,
             bigBlind: gameState.bigBlind,
             opponentStyle: gameState.opponentStyle,
-            playersInHand: gameState.playersInHand
+            playersInHand: gameState.playersInHand,
+            heroWagerThisStreet: gameState.heroWagerThisStreet
         )
     }
 }

@@ -26,13 +26,15 @@ struct PreflopSizingTests {
                          toCall: Double,
                          position: String = "BTN",
                          bigBlind: Double = 1.0,
-                         stack: Double = 100) -> Double {
+                         stack: Double = 100,
+                         heroWagerThisStreet: Double = 0) -> Double {
         let state = spot(hole: hole, pot: pot, toCall: toCall, stack: stack,
-                         villainStack: stack, position: position, bigBlind: bigBlind)
+                         villainStack: stack, position: position, bigBlind: bigBlind,
+                         heroWagerThisStreet: heroWagerThisStreet)
         let settings = SolverSettings(smallBlind: bigBlind / 2, bigBlind: bigBlind)
         let result = solver.solve(gameState: state, myEquity: 0.6, settings: settings)
-        let posted = state.blindPosted(smallBlind: settings.smallBlind)
-        return (posted + toCall + result.raiseAmount) / bigBlind
+        let committed = state.heroCommitted(smallBlind: settings.smallBlind)
+        return (committed + toCall + result.raiseAmount) / bigBlind
     }
 
     /// An unopened pot holds 1.5bb, and a fraction of that is less than the blind hero
@@ -160,6 +162,42 @@ struct PreflopSizingTests {
 
         #expect(threeLimpers > unopened + 2.0,
                 "opened to \(threeLimpers)bb over three limpers vs \(unopened)bb unopened")
+    }
+
+    /// Villain's wager was reconstructed as hero's *blind* plus what hero owes, but the
+    /// identity is hero's whole street contribution plus what hero owes. Once hero has
+    /// opened, villain's raise is understated by hero's own — so a 4-bet was sized off
+    /// 6.5bb rather than the 9bb villain actually made it, landing at 2.4x instead of 3x.
+    @Test("A 4-bet is sized off villain's real raise, not off what hero owes")
+    func fourBetSizesOffVillainsRealRaise() {
+        // Hero opened to 2.5, villain 3-bet to 9: pot 12, hero owes 6.5.
+        let size = raiseTo("Ad Ac", pot: 12.0, toCall: 6.5, heroWagerThisStreet: 2.5)
+        #expect(size >= 26.0 && size <= 28.0,
+                "4-bet to \(size)bb; three times a 9bb 3-bet is 27bb")
+    }
+
+    /// The same quantity, one step earlier: hero opened and faces a small 3-bet.
+    @Test("A re-raise accounts for what hero already put in")
+    func reRaiseAccountsForHerosPriorWager() {
+        // Hero opened to 2.5, villain 3-bet to 7.5: pot 10.5, hero owes 5.0.
+        let withPrior = raiseTo("Ad Ac", pot: 10.5, toCall: 5.0, heroWagerThisStreet: 2.5)
+        let withoutPrior = raiseTo("Ad Ac", pot: 10.5, toCall: 5.0)
+
+        #expect(withPrior > withoutPrior,
+                "\(withPrior)bb knowing hero opened vs \(withoutPrior)bb not knowing")
+        #expect(withPrior >= 21.0, "3x a 7.5bb 3-bet is 22.5bb; sized to \(withPrior)bb")
+    }
+
+    /// And the read that shares the quantity: a 7.5bb 3-bet is not an opening range.
+    @Test("A 3-bet is read as a 3-bet once hero's own raise is counted")
+    func threeBetIsReadAsAThreeBet() {
+        let state = spot(hole: "Ad Ac", pot: 10.5, toCall: 5.0, position: "BTN",
+                         bigBlind: 1.0, heroWagerThisStreet: 2.5)
+        let wager = state.villainWagerInBigBlinds(smallBlind: 0.5)
+
+        #expect(abs(wager - 7.5) < 1e-9, "villain's 7.5bb 3-bet measured as \(wager)bb")
+        #expect(OpponentRange.preflopRange(villainWagerInBigBlinds: wager) == .tight,
+                "read as \(OpponentRange.preflopRange(villainWagerInBigBlinds: wager))")
     }
 
     /// Postflop is untouched: there the pot is real money and a fraction of it is the

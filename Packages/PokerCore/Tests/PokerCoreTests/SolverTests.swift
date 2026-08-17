@@ -17,6 +17,7 @@ func spot(hole: String = "Ad Ac",
           position: String = "BTN",
           playersInHand: Int = 2,
           bigBlind: Double = 1.0,
+          heroWagerThisStreet: Double = 0,
           opponentStyle: OpponentStyle = .unknown) -> GameStateCopy {
     let holeCards = cards(hole)
     var community: [Card?] = [nil, nil, nil, nil, nil]
@@ -33,7 +34,8 @@ func spot(hole: String = "Ad Ac",
         toCall: toCall,
         bigBlind: bigBlind,
         opponentStyle: opponentStyle,
-        playersInHand: playersInHand
+        playersInHand: playersInHand,
+        heroWagerThisStreet: heroWagerThisStreet
     )
 }
 

@@ -123,6 +123,13 @@ struct HandLifecycleTests {
         #expect(viewModel.getCurrentStateString() != baseline, "players in hand is not in the fingerprint")
         viewModel.gameState.playersInHand = 6
 
+        // Hero's own street contribution decides how big villain's raise is read to be,
+        // which sets both the range and the re-raise size.
+        viewModel.gameState.heroWagerThisStreet = 2.5
+        #expect(viewModel.getCurrentStateString() != baseline,
+                "hero's street wager is not in the fingerprint")
+        viewModel.gameState.heroWagerThisStreet = 0
+
         settings.gameMode = .tournament
         #expect(viewModel.getCurrentStateString() != baseline, "game mode is not in the fingerprint")
         settings.gameMode = .cashGame

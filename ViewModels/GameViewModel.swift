@@ -103,6 +103,7 @@ class GameViewModel: ObservableObject {
             "\(gameState.villainStack)",
             "\(gameState.bigBlind)",
             "\(gameState.playersInHand)",
+            "\(gameState.heroWagerThisStreet)",
             gameState.position,
             gameState.opponentStyle.rawValue,
             "\(settings?.smallBlind ?? 0)",

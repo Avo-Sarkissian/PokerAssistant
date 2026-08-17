@@ -118,6 +118,14 @@ public struct GameStateCopy: Sendable {
     public let opponentStyle: OpponentStyle
     public let playersInHand: Int
 
+    /// Hero's total contribution to the current street so far: a posted blind, plus any
+    /// raise hero has already made this street.
+    ///
+    /// Cannot be recovered from `potSize`, which is the flattened total — that is why it
+    /// is carried. Defaults to 0, and `heroCommitted` floors it at the posted blind, so a
+    /// caller that does not track it still gets the blind rather than nothing.
+    public let heroWagerThisStreet: Double
+
     public init(holeCards: [Card?],
                 communityCards: [Card?],
                 deadCards: Set<Card>,
@@ -128,7 +136,8 @@ public struct GameStateCopy: Sendable {
                 toCall: Double,
                 bigBlind: Double,
                 opponentStyle: OpponentStyle,
-                playersInHand: Int) {
+                playersInHand: Int,
+                heroWagerThisStreet: Double = 0) {
         self.holeCards = holeCards
         self.communityCards = communityCards
         self.deadCards = deadCards
@@ -140,6 +149,7 @@ public struct GameStateCopy: Sendable {
         self.bigBlind = bigBlind
         self.opponentStyle = opponentStyle
         self.playersInHand = playersInHand
+        self.heroWagerThisStreet = heroWagerThisStreet
     }
 
     /// Opponents hero is actually up against right now.
@@ -157,29 +167,28 @@ public struct GameStateCopy: Sendable {
         }
     }
 
+    /// Everything hero has put in this street, never less than the blind they posted.
+    ///
+    /// The floor matters: a caller that has not wired `heroWagerThisStreet` through still
+    /// gets the blind, which is the correct answer for every spot where hero has not
+    /// raised — and that is most of them.
+    public func heroCommitted(smallBlind: Double) -> Double {
+        max(heroWagerThisStreet, blindPosted(smallBlind: smallBlind))
+    }
+
     /// Villain's total contribution to this street, in big blinds — the unit both the
     /// preflop range read and preflop raise sizing are expressed in. One definition,
     /// because the solver and the view model both need it and a second copy is how the
     /// two would drift.
     ///
-    /// **Known to under-count when hero was the previous aggressor.** The identity is
-    /// `villainTotal = heroTotalSoFar + toCall`, and `blindPosted` is only equal to
-    /// `heroTotalSoFar` while hero has put in nothing beyond a blind. Once hero has
-    /// opened, villain's wager is understated by exactly hero's prior voluntary raise:
-    /// hero opens to 2.5bb, villain 3-bets to 9bb, and this returns 6.5bb. A 7.5bb 3-bet
-    /// reports 5.0bb and reads `.standard` — an opening range — rather than `.tight`.
-    ///
-    /// Fixing it needs a field this type does not have: hero's committed-this-street
-    /// amount. `PotEntry.preflop` already computes it as `heroPriorWager` and throws it
-    /// away when the pot is flattened into `potSize`/`toCall`, so the fix is to carry it
-    /// through rather than to derive it here — there is no way to recover it from a pot
-    /// total. Until then this is exact for the common case (hero facing an open with
-    /// nothing in) and one tier too loose for re-raises, which is still a long way better
-    /// than the pot-relative read it replaced, where *every* preflop spot including an
-    /// unopened button read as a 3-bet range.
+    /// The identity is `villainTotal = heroTotalSoFar + toCall`. Reconstructing
+    /// `heroTotalSoFar` as hero's blind alone understated villain's raise by exactly
+    /// hero's own prior raise: hero opens to 2.5bb, villain 3-bets to 9bb, and it
+    /// returned 6.5bb — so a 7.5bb 3-bet read `.standard`, an *opening* range, and 4-bets
+    /// were sized off the wrong number at 2.4x rather than 3x.
     public func villainWagerInBigBlinds(smallBlind: Double) -> Double {
         guard bigBlind > 0 else { return 0 }
-        return (blindPosted(smallBlind: smallBlind) + toCall) / bigBlind
+        return (heroCommitted(smallBlind: smallBlind) + toCall) / bigBlind
     }
 
     public var currentStreet: Street {

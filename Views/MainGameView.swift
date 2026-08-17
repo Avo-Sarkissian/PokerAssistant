@@ -192,6 +192,9 @@ struct MainGameView: View {
                                             bigBlind: settings.bigBlind)
             gameViewModel.gameState.potSize = entry.totalPot
             gameViewModel.gameState.toCall = entry.toCall
+            // Nobody has raised, so hero's only contribution is this seat's blind.
+            gameViewModel.gameState.heroWagerThisStreet =
+                pos == "SB" ? settings.smallBlind : (pos == "BB" ? settings.bigBlind : 0)
         }
         gameViewModel.gameState.position = pos
     }
@@ -406,9 +409,13 @@ struct PotInfoViewEnhanced: View {
                  toCall: gameViewModel.gameState.toCall)
     }
 
-    private func commit(_ updated: PotEntry) {
+    /// `heroWager` is what hero has already put into the street. Manual entry cannot know
+    /// it — the steppers only move the pot and the bet — so it defaults to nil and leaves
+    /// the existing value alone; `heroCommitted` floors that at the posted blind.
+    private func commit(_ updated: PotEntry, heroWager: Double? = nil) {
         gameViewModel.gameState.potSize = updated.totalPot
         gameViewModel.gameState.toCall = updated.toCall
+        if let heroWager { gameViewModel.gameState.heroWagerThisStreet = heroWager }
     }
 
     var body: some View {
@@ -571,10 +578,16 @@ struct PotInfoViewEnhanced: View {
                         .foregroundColor(.secondary)
                     ForEach(PreflopPreset.allCases) { preset in
                         Button {
+                            // The preset knows what hero already had in; `commit` only
+                            // sees the flattened pot, so pass it explicitly.
+                            let heroBlind = selectedPosition == "SB" ? settings.smallBlind
+                                : (selectedPosition == "BB" ? settings.bigBlind : 0)
                             commit(PotEntry.preflop(preset,
                                                     heroPosition: selectedPosition,
                                                     smallBlind: settings.smallBlind,
-                                                    bigBlind: settings.bigBlind))
+                                                    bigBlind: settings.bigBlind),
+                                   heroWager: max(preset.heroPriorWager * settings.bigBlind,
+                                                  heroBlind))
                         } label: {
                             Text(preset.label)
                                 .font(.caption)

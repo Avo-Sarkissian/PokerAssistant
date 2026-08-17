@@ -45,7 +45,9 @@ Shipped, by commit:
 | `2abc163` | Restored raising (a regression); gated postflop range conditioning |
 | `f39443d` | CI; App Store blockers — icon, `NavigationStack`, privacy manifest, encryption flag, deployment target 17.0, dark-mode preference |
 | `a596903` | `Packages/PokerCore` extracted (#83); seeded runs made reproducible under load; `scripts/test` |
-| _(this one)_ | Batch A guards (#33, #34, #35): short-stack call EV, `Card` value equality, deal validation pushed into the engines, enumerator bounds, Metal `gid` and starved-deck guards |
+| `c3a41ac` | Batch A guards (#33, #34, #35): short-stack call EV, `Card` value equality, deal validation pushed into the engines, enumerator bounds, Metal `gid` and starved-deck guards |
+| `6aa9d45` | Preflop sizing and range reads in big blinds (#25); combo-weighted range widths (#23) |
+| _(this one)_ | Hero's committed-this-street amount carried into the input model, so villain's raise is measured correctly |
 
 Equity is now within **0.20 percentage points** of published values where the exact
 path runs, down from being wrong by up to 36.
@@ -56,25 +58,30 @@ Batch A (guards) is **done** — see the commit table above. Backlog items 33, 3
 closed by it, and item 34 was closed as a side effect: the kernel's new "deck cannot seat
 this deal" early-return means the board fill can no longer read uninitialised memory.
 
-**1. Carry hero's committed-this-street amount into `GameStateCopy`.** This is now the
-top item, ahead of the rest of Batch D, because two shipped features are wrong without it.
-`GameStateCopy.villainWagerInBigBlinds` reconstructs villain's wager as
-`blindPosted + toCall`, but the identity is `heroTotalSoFar + toCall`, so once hero has
-opened, villain's raise is understated by hero's own prior raise. Consequences today: a
-7.5bb 3-bet reads `.standard` instead of `.tight` (equity computed against a range a third
-too wide, fold equity 0.45 instead of 0.35, both pointing at continuing too light), and
-4-bets size to about 2.2x the 3-bet instead of 3x. `PotEntry.preflop` already knows the
-number as `heroPriorWager` and discards it when the pot is flattened to `potSize`/`toCall`
-— it cannot be recovered from a pot total, so it has to be carried through `GameState` and
-`GameStateCopy`. Small change, but it touches the input model, so it needs its own pass.
+**1. Batch D — the rest.** Items 24, 29, 21, 28:
+- **24** (High/Small, touches the UI) only BTN/SB/BB exist at a nine-handed table, so
+  every other seat silently maps to button-level aggression and a banner names a "CO"
+  that cannot be selected. Make `Position` an enum driven by table size.
+- **29** (Med/Med, package-local) one ranking list serves both hero's hand class and
+  opponent-range construction, which want opposite orderings — K6o grades above 65s
+  despite ranking 27 places worse.
+- **28** re-verify before doing anything: the backlog says the fold-below-pot-odds guard
+  makes the bluff branch unreachable, but `makeDecision` was rewritten to EV-argmax in
+  `bd2bedf`, so the finding is probably stale.
+- **21** is Large and depends on range-conditioned equity; it belongs with Batch E.
 
-**2. Batch D — the rest.** Items 21, 24, 28, 29, plus:
-- `HandStrength`'s absolute cutoffs (0.85/0.70/0.50/0.35) were calibrated against
-  equity-vs-random; 35 of 75 swept spot/range pairs land in a different bucket once
-  equity is range-conditioned. This blocks re-enabling #30's routing.
-- Preflop range tiers saturate: an unopened button reads `.veryTight`, and
-  `RangeInferenceTests.preflopTiersAreOrdered` currently asserts that saturation as
-  correct. Threshold preflop on big blinds, not on a fraction of a pot made only of blinds.
+**2. Then: an external validation harness — recommended ahead of Batch E.**
+Every defect that mattered in the last three sessions was found by comparing against
+something *outside* the code: the reference evaluator, published equities, an adversarial
+reader, or measuring what the sizing actually emitted. No strategic constant has that.
+Fold-equity rates, board-texture factors, SPR bands, the 169-hand chart's ordering, and
+now the preflop tier boundaries and open sizes written in `6aa9d45` — all hand-authored,
+none backtested. Items 21, 31 and 32 build a continuation model *on top of* these, so
+validating them first is what makes that work worth doing.
+
+The `HandStrength` cutoffs (0.85/0.70/0.50/0.35) were calibrated against equity-vs-random;
+35 of 75 swept spot/range pairs land in a different bucket once equity is range-conditioned.
+That is backlog #32, and it is what blocks re-enabling #30's routing.
 
 **3. Batch E — the range engine.** Items 31, 32, and re-enabling 30's routing behind a
 board-conditioned continuation model. See the trap below before starting.
