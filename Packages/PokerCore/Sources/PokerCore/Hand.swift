@@ -14,7 +14,18 @@ public struct Hand: Sendable {
     }
 
     public var isValid: Bool {
-        holeCards.count == 2 && communityCards.count <= 5
+        holeCards.count == 2 && communityCards.count <= 5 && !hasDuplicateCards
+    }
+
+    /// The same card appearing twice across hole cards and board — an impossible deal.
+    ///
+    /// Worth an explicit check because nothing downstream will raise one: every engine
+    /// builds the remaining deck from a set of 0–51 indices, so a duplicate silently
+    /// collapses there while still being scored twice in the hand itself. Duplicate hole
+    /// cards were answered with a confident 76.82%.
+    public var hasDuplicateCards: Bool {
+        let all = allCards
+        return Set(all).count != all.count
     }
 
     public var street: Street {

@@ -85,6 +85,45 @@ struct SolverEVTests {
                 "BTN \(onButton.evCall) vs SB \(inSmallBlind.evCall)")
     }
 
+    /// Hero can only call for what is in front of them, and the part of villain's bet
+    /// hero cannot cover is returned to villain rather than contested. Counting it makes
+    /// a desperate call look like the best spot of the session.
+    @Test("A call for less than the bet contests only the chips hero can match")
+    func shortStackCallContestsOnlyMatchedChips() {
+        let solver = ExploitativeSolver()
+        // Pot 150 with villain's 140 already in it, so 10 was in the middle before.
+        // Hero has 12 behind and 95% equity.
+        let result = solver.solve(
+            gameState: spot(pot: 150, toCall: 140, stack: 12, villainStack: 200),
+            myEquity: 0.95, settings: makeSettings())
+
+        // Contested: the 10 already there, the 12 hero puts in, and the 12 of villain's
+        // bet that hero's 12 actually matches. 0.95 * 34 − 12 = 20.30.
+        #expect(abs(result.evCall - 20.30) < 1e-9,
+                "evCall was \(result.evCall), expected 20.30 — the other 128 of villain's bet is uncalled")
+    }
+
+    /// The same defect stated as the property it violates, independent of the arithmetic:
+    /// once villain's bet is past what hero can cover, betting more cannot pay hero more.
+    @Test("Raising a bet hero already cannot cover does not improve hero's call")
+    func uncallableExcessDoesNotImproveTheCall() {
+        let solver = ExploitativeSolver()
+        let settings = makeSettings()
+
+        // Same 10 in the middle before villain acts, same 12 behind for hero.
+        func callEV(villainBet: Double) -> Double {
+            solver.solve(gameState: spot(pot: 10 + villainBet, toCall: villainBet,
+                                         stack: 12, villainStack: 200),
+                         myEquity: 0.95, settings: settings).evCall
+        }
+
+        let coverable = callEV(villainBet: 20)
+        let overbet = callEV(villainBet: 140)
+
+        #expect(abs(coverable - overbet) < 1e-9,
+                "a bigger uncallable bet changed hero's call from \(coverable) to \(overbet)")
+    }
+
     /// A losing call must be reported as losing by the amount it actually loses.
     @Test("A bad call is priced at its true loss")
     func badCallIsPricedHonestly() {

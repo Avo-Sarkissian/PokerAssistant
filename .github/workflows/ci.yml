@@ -26,7 +26,7 @@ jobs:
       # this workflow, so it runs before anything is booted. If the maths is wrong,
       # fail here rather than eight minutes later.
       #
-      # This is 46 of the project's 58 tests, and `xcodebuild -scheme PokerAssistant
+      # This is the larger half of the project's tests, and `xcodebuild -scheme PokerAssistant
       # test` does not run any of them — Xcode will not treat a SwiftPM test target as
       # a testable from a project-based scheme. `scripts/test` runs both suites; the
       # two steps here are deliberately kept separate so a failure names which one.

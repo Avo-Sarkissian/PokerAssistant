@@ -24,6 +24,12 @@ public final class ExactEnumerator {
     /// Exact river equity (1 or 2 opponents). Returns nil if unsupported case.
     public func calculateRiver(hand: Hand, opponents: Int, deadCards: Set<Card>,
                         opponentRange: OpponentRange.RangeType = .random) -> Double? {
+        // One card cannot be in two places. `buildAvailable` dedupes by 0-51 index, so a
+        // duplicate silently collapses out of the remaining deck while still being scored
+        // twice in hero's own hand — measured, that answered impossible deals with 89.7%,
+        // 80.3%, 98.3% and 83.0%. The router guards this too; the invariant belongs here,
+        // where it is owned.
+        guard hand.isValid else { return nil }
         guard hand.communityCards.count == 5 else { return nil }
         let available = buildAvailable(hand: hand, deadCards: deadCards)
         switch opponents {
@@ -36,6 +42,7 @@ public final class ExactEnumerator {
     /// Exact turn equity (1 opponent only). Returns nil if unsupported.
     public func calculateTurn(hand: Hand, opponents: Int, deadCards: Set<Card>,
                        opponentRange: OpponentRange.RangeType = .random) -> Double? {
+        guard hand.isValid else { return nil }   // see calculateRiver
         guard hand.communityCards.count == 4, opponents == 1 else { return nil }
         let available = buildAvailable(hand: hand, deadCards: deadCards)
         return turnOneOpponent(hand: hand, available: available, range: opponentRange)
@@ -46,6 +53,7 @@ public final class ExactEnumerator {
     /// ~46×45/2 × 44×43/2 ≈ 1.07M evaluations — typically ~300 ms.
     public func calculateFlop(hand: Hand, opponents: Int, deadCards: Set<Card>,
                        opponentRange: OpponentRange.RangeType = .random) -> Double? {
+        guard hand.isValid else { return nil }   // see calculateRiver
         guard hand.communityCards.count == 3, opponents == 1 else { return nil }
         let available = buildAvailable(hand: hand, deadCards: deadCards)
         return flopOneOpponent(hand: hand, available: available, range: opponentRange)
@@ -74,6 +82,10 @@ public final class ExactEnumerator {
                                   range: OpponentRange.RangeType) -> Double? {
         let board = hand.communityCards  // 5 cards
         let n     = available.count      // typically ~45
+
+        // One opponent hand: two cards. Every buffer below is seeded from
+        // `available[0]`, so this has to come before any indexing, not after.
+        guard n >= 2 else { return nil }
 
         // My hand score is constant for the whole enumeration (board is fixed)
         var myHand = hand.holeCards + board
@@ -114,6 +126,9 @@ public final class ExactEnumerator {
                                    range: OpponentRange.RangeType) -> Double? {
         let board = hand.communityCards
         let n     = available.count
+
+        // Two opponent hands: four cards.
+        guard n >= 4 else { return nil }
 
         var myHand = hand.holeCards + board
         let myScore = evaluator.evaluate(myHand)
@@ -202,6 +217,9 @@ public final class ExactEnumerator {
         let board = hand.communityCards  // 4 cards
         let n     = available.count      // typically ~46
 
+        // A river card plus two opponent cards.
+        guard n >= 3 else { return nil }
+
         // My hand template: hole cards + 4 board cards + 1 river (position 6)
         var myHand = hand.holeCards + board + [available[0]]
 
@@ -251,6 +269,9 @@ public final class ExactEnumerator {
                                  range: OpponentRange.RangeType) -> Double? {
         let board3 = hand.communityCards  // 3 flop cards
         let n      = available.count      // typically ~45
+
+        // A turn, a river, and two opponent cards.
+        guard n >= 4 else { return nil }
 
         var myHand  = hand.holeCards + board3 + [available[0], available[0]] // slots 5 & 6 filled below
         var oppHand = Array(repeating: available[0], count: 7)

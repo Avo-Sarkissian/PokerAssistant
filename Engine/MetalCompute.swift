@@ -79,12 +79,38 @@ class MetalCompute {
         }
     }
     
+    /// What the kernel actually did: hero's equity, and how many showdowns produced it.
+    ///
+    /// The count is the only way to tell from outside whether every thread that owned a
+    /// results slot ran. Equity alone cannot: one thread more or fewer moves a Monte
+    /// Carlo estimate by far less than its own sampling error, so a bounds guard written
+    /// `>` instead of `>=` — or no guard at all — is invisible in the equity.
+    struct GPUResult {
+        let equity: Double
+        let simulations: UInt64
+    }
+
     func simulateGPU(
         hand: Hand,
         opponents: Int,
         deadCards: Set<Card>,
         iterations: Int
     ) async -> Double? {
+        await simulateGPUCounting(hand: hand, opponents: opponents,
+                                  deadCards: deadCards, iterations: iterations)?.equity
+    }
+
+    func simulateGPUCounting(
+        hand: Hand,
+        opponents: Int,
+        deadCards: Set<Card>,
+        iterations: Int
+    ) async -> GPUResult? {
+        // `SimulationParams.init` indexes `hand.holeCards[0]` and `[1]` directly, so an
+        // incomplete hand traps here rather than being declined. `MonteCarloEngine`
+        // returns 0.0 for the same input; this is the sibling that did not check.
+        guard hand.isValid else { return nil }
+
         // NON-BLOCKING check: If shader is still compiling, return nil immediately
         // Caller will fall back to CPU - don't block the calculation thread
         guard isPipelineReady(), let pipeline = computePipeline else {
@@ -120,7 +146,8 @@ class MetalCompute {
             iterations: UInt32(iterations),
             opponents: UInt32(opponents),
             hand: hand,
-            deadCards: deadCards
+            deadCards: deadCards,
+            threadCount: UInt32(totalThreads)
         )
 
         guard let paramsBuffer = device.makeBuffer(
@@ -161,10 +188,10 @@ class MetalCompute {
         resultsBuffer: MTLBuffer,
         totalThreads: Int,
         timeoutSeconds: Double = 5.0
-    ) async -> Double? {
+    ) async -> GPUResult? {
         // Use a simple race between GPU completion and timeout
         // CRITICAL: Return immediately when first result arrives
-        return await withTaskGroup(of: Double?.self) { group in
+        return await withTaskGroup(of: GPUResult?.self) { group in
             // GPU completion task
             group.addTask {
                 await withCheckedContinuation { continuation in
@@ -188,8 +215,12 @@ class MetalCompute {
 
                         if totalSims > 0 {
                             let equity = Double(totalUnits) / (equityUnitScale * Double(totalSims))
-                            continuation.resume(returning: min(1.0, max(0.0, equity)))
+                            continuation.resume(returning: GPUResult(
+                                equity: min(1.0, max(0.0, equity)),
+                                simulations: totalSims))
                         } else {
+                            // Every thread declined — a deck too short to deal. Report
+                            // nothing so the caller falls back rather than believing it.
                             continuation.resume(returning: nil)
                         }
                     }
@@ -218,7 +249,11 @@ class MetalCompute {
 // Must match Metal struct exactly
 /// Must match the Metal struct exactly. Equity arrives as integer units of
 /// `equityUnitScale` so chopped pots divide exactly on the GPU.
-private struct ThreadResult {
+///
+/// Internal rather than private so `MetalLayoutTests` can assert the layout. Getting
+/// these two structs out of step is silent — the GPU reads whatever bytes are there —
+/// and it has cost time before.
+struct ThreadResult {
     var equityUnits: UInt32 = 0
     var total: UInt32 = 0
 }
@@ -226,7 +261,7 @@ private struct ThreadResult {
 /// LCM(1...10) — matches EQUITY_UNIT in PokerShaders.metal.
 private let equityUnitScale: Double = 2520
 
-private struct SimulationParams {
+struct SimulationParams {
     var iterations: UInt32
     var opponents: UInt32
     var holeCard1: UInt32
@@ -241,10 +276,19 @@ private struct SimulationParams {
                     UInt32, UInt32, UInt32, UInt32, UInt32, UInt32, UInt32, UInt32,
                     UInt32, UInt32, UInt32, UInt32, UInt32, UInt32, UInt32, UInt32,
                     UInt32, UInt32, UInt32, UInt32)
-    
-    init(iterations: UInt32, opponents: UInt32, hand: Hand, deadCards: Set<Card>) {
+
+    /// How many threads have a slot in the results buffer.
+    ///
+    /// The kernel cannot work this out for itself: the dispatch rounds up to whole
+    /// threadgroups, and `iterations / iterationsPerThread` does not reproduce the
+    /// `max(1, …)` applied here. Appended last so every existing field keeps its offset.
+    var threadCount: UInt32
+
+    init(iterations: UInt32, opponents: UInt32, hand: Hand, deadCards: Set<Card>,
+         threadCount: UInt32) {
         self.iterations = iterations
         self.opponents = opponents
+        self.threadCount = threadCount
         
         self.holeCard1 = UInt32(hand.holeCards[0].rank.rawValue - 2) * 4 + UInt32(hand.holeCards[0].suit.suitIndex)
         self.holeCard2 = UInt32(hand.holeCards[1].rank.rawValue - 2) * 4 + UInt32(hand.holeCards[1].suit.suitIndex)

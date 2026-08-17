@@ -60,7 +60,7 @@ public enum Rank: Int, CaseIterable, Codable, Sendable {
 }
 
 public struct Card: Identifiable, Hashable, Codable, Sendable {
-    // FIXED: Changed 'let' to 'var' to satisfy Codable requirements
+    /// Distinguishes two *views* of a card, never two cards. See the equality note below.
     public var id = UUID()
     public let rank: Rank
     public let suit: Suit
@@ -69,6 +69,30 @@ public struct Card: Identifiable, Hashable, Codable, Sendable {
         self.id = id
         self.rank = rank
         self.suit = suit
+    }
+
+    // MARK: - Equality
+    //
+    // A card is its rank and suit. The synthesised conformance also compared `id`, a
+    // fresh UUID per instance, so no independently built card ever equalled another —
+    // including the same card built twice, and `Set<Card>` was a set of instances rather
+    // than of cards.
+    //
+    // Every engine here already worked around that by hand-rolling a 0–51 index
+    // (`ExactEnumerator.cardIndex`, `MonteCarloEngine.usedIndices`), which is why no
+    // equity was ever wrong because of it. What the workaround could not cover is code
+    // that reasonably expects value semantics: `Hand.hasDuplicateCards` is
+    // `Set(allCards).count != allCards.count`, and `EquityCalculator`'s dead-card check
+    // is `deadCards.isDisjoint(with: hand.allCards)`. Neither is expressible while a
+    // card is unequal to itself.
+
+    public static func == (lhs: Card, rhs: Card) -> Bool {
+        lhs.rank == rhs.rank && lhs.suit == rhs.suit
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(rank)
+        hasher.combine(suit)
     }
 
     public var displayString: String {

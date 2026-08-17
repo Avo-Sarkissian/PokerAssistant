@@ -72,6 +72,24 @@ class EquityCalculator {
         guard hand.communityCards.count <= 5 else { return 0.0 }
         guard opponents >= 1               else { return 0.0 }
 
+        // A card cannot be in two places. Nothing downstream will object: every engine
+        // builds the remaining deck from a set of 0–51 indices, so the duplicate
+        // collapses there while still being scored twice in hero's own hand. Measured,
+        // that answered impossible deals with 85.6%, 99.95% and 89.3% — numbers the UI
+        // presents exactly like a real one.
+        guard !hand.hasDuplicateCards else { return 0.0 }
+        guard deadCards.isDisjoint(with: hand.allCards) else { return 0.0 }
+
+        // Enough deck must be left to run the board out and deal every opponent a hand.
+        // The engines below each guard themselves now, but they disagree about what to
+        // do when they cannot answer: the enumerators return nil, which this method
+        // reads as "try the next engine". That fall-through is why this check has to
+        // exist here as well — otherwise a starved deck reaches whichever engine happens
+        // to be ready, and the answer depends on the hardware rather than the cards.
+        let cardsInPlay = Set(hand.allCards).union(deadCards)
+        let cardsNeeded = (5 - hand.communityCards.count) + opponents * 2
+        guard 52 - cardsInPlay.count >= cardsNeeded else { return 0.0 }
+
         // Load-bearing beyond the counter it looks like: `reportCalculation` is the only
         // thing that starts the monitor's sampling timer, so deleting it blanks the whole
         // performance panel. If this file ever follows the engine into PokerCore, this

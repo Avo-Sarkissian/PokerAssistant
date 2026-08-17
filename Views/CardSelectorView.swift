@@ -55,9 +55,7 @@ struct CardSelectorView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     ForEach(ranks, id: \.self) { rank in
-                        let isUsed = gameViewModel.gameState.usedCards.contains {
-                            $0.rank == rank && $0.suit == suit
-                        }
+                        let isUsed = gameViewModel.gameState.isUsed(Card(rank: rank, suit: suit))
                         CardGridCell(
                             rank: rank,
                             suit: suit,

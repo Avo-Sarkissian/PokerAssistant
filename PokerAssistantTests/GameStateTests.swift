@@ -12,6 +12,18 @@ import PokerTestSupport
 
 /// `Settings` is backed by @AppStorage on the shared defaults and the test host is the
 /// app itself, so anything a test writes leaks into the real app unless it is restored.
+///
+/// Snapshot-and-restore is only half of it: Swift Testing runs suites in parallel and
+/// they all share one `UserDefaults.standard`, so two tests can snapshot the same clean
+/// value, both mutate, and whichever restores second writes the other's dirty value back
+/// as the "original". That is not theoretical — a run of this file left the simulator's
+/// installed app with `smallBlind = 0.25` persisted, opening on a $1.25 pot instead of
+/// $1.50. The other half of the fix is `SettingsBackedStateTests` below, which puts every
+/// suite that touches defaults inside one `.serialized` parent.
+///
+/// A lock here would be the obvious alternative and is the wrong one: these tests await,
+/// and holding a blocking lock across a suspension point starves the cooperative pool —
+/// tried, and it deadlocked the run until the 180-second time limit killed it.
 struct DefaultsSnapshot {
     private static let keys = ["smallBlind", "bigBlind", "numberOfPlayers", "buyIn",
                                "gameMode", "tournamentPhase", "calculationDepth"]
@@ -31,6 +43,13 @@ struct DefaultsSnapshot {
         }
     }
 }
+
+/// Every suite that reads or writes `Settings` — and therefore the one shared
+/// `UserDefaults` — nests here. `.serialized` applies to the whole tree, so these run one
+/// at a time while every other suite in the target still runs in parallel.
+@Suite("Settings-backed state", .serialized)
+struct SettingsBackedStateTests {
+
 
 @Suite("Hand lifecycle")
 @MainActor
@@ -120,6 +139,71 @@ struct HandLifecycleTests {
 
         settings.smallBlind = 0.25
         #expect(viewModel.getCurrentStateString() != baseline, "small blind is not in the fingerprint")
+    }
+}
+
+// MARK: - Card selection
+
+/// `GameState.isUsed` is what the card picker greys out and disables, so it is the only
+/// thing standing between the user and entering the same card twice.
+///
+/// It is deliberately a model method rather than a predicate inline in the view: an
+/// earlier version of this suite tested `GameState.availableCards`, which no view has
+/// ever called, so it certified a property nothing rendered while the path a user
+/// actually touches stayed uncovered.
+@Suite("Cards already in play")
+@MainActor
+struct UsedCardsTests {
+
+    @Test("A card in the hand is already in play")
+    func holeAndBoardCardsAreUsed() {
+        let state = GameState()
+        state.holeCards = [card("Ad"), card("Ac")]
+        state.communityCards = [card("Ks"), card("7h"), card("2d"), nil, nil]
+
+        for used in cards("Ad Ac Ks 7h 2d") {
+            #expect(state.isUsed(used), "\(used.displayString) is still on offer")
+        }
+        #expect(!state.isUsed(card("Qh")), "an untouched card was reported as used")
+        #expect(!state.isUsed(card("As")), "a different suit is a different card")
+    }
+
+    @Test("A dead card is already in play")
+    func deadCardsAreUsed() {
+        let state = GameState()
+        state.holeCards = [card("Ad"), card("Ac")]
+        state.deadCards = [card("Kh"), card("Qs")]
+
+        #expect(state.isUsed(card("Kh")))
+        #expect(state.isUsed(card("Qs")))
+        #expect(!state.isUsed(card("Kd")))
+    }
+
+    /// Nothing selected: every card is available.
+    @Test("An empty table has no cards in play")
+    func emptyTableHasNothingUsed() {
+        let state = GameState()
+        for card in Card.deck() {
+            #expect(!state.isUsed(card), "\(card.displayString) was reported as used")
+        }
+    }
+
+    /// The whole point: a card entered once cannot be entered again.
+    @Test("Every card in play is refused by the picker's gate")
+    func everyCardInPlayIsRefused() {
+        let state = GameState()
+        state.holeCards = [card("Ad"), card("Ac")]
+        state.communityCards = [card("Ks"), card("7h"), card("2d"), nil, nil]
+        state.deadCards = [card("Kh")]
+
+        let inPlay = cards("Ad Ac Ks 7h 2d Kh")
+        let offered = Card.deck().filter { !state.isUsed($0) }
+
+        #expect(offered.count == 52 - inPlay.count,
+                "\(52 - offered.count) of \(inPlay.count) cards in play were refused")
+        for used in inPlay {
+            #expect(!offered.contains(used), "\(used.displayString) is still offered")
+        }
     }
 }
 
@@ -251,3 +335,4 @@ struct PlayersInHandTests {
                 "heads-up \(headsUp) vs nine-way \(nineWay) — the live player count is being ignored")
     }
 }
+}   // SettingsBackedStateTests

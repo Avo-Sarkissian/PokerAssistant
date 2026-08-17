@@ -61,10 +61,17 @@ class GameState: ObservableObject {
         return used
     }
     
-    var availableCards: [Card] {
-        Card.deck().filter { !usedCards.contains($0) }
+    /// Whether a card is already in hero's hand, on the board, or marked dead.
+    ///
+    /// This is the card picker's only defence against the same card being entered twice,
+    /// so it lives here where it can be tested rather than inline in a view. `usedCards`
+    /// is a `Set<Card>`, which is only a correct answer because `Card` compares by rank
+    /// and suit — under the old per-instance-UUID equality this lookup would always miss.
+    func isUsed(_ card: Card) -> Bool {
+        usedCards.contains(card)
     }
-    
+
+
     // NEW: Computed property for current street
     var currentStreet: Street {
         let communityCount = communityCards.compactMap { $0 }.count

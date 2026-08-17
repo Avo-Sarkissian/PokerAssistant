@@ -18,6 +18,9 @@ struct SimulationParams {
     uint community[5];
     uint deadCount;
     uint deadCards[52];
+    // Slots that actually exist in the results and seeds buffers. Appended last so the
+    // offsets above are unchanged; must stay in step with the Swift struct.
+    uint threadCount;
 };
 
 // Each thread writes to its own slot.
@@ -122,6 +125,13 @@ kernel void monteCarloPoker(
     device uint* randomSeeds [[buffer(2)]],
     uint gid [[thread_position_in_grid]]
 ) {
+    // The grid is dispatched in whole threadgroups of 256, but the results and seeds
+    // buffers hold exactly `threadCount` slots. Every dispatch whose thread count is not
+    // a multiple of 256 therefore had up to 255 threads reading and writing past the end
+    // of both buffers — undefined behaviour that has only ever been survivable because
+    // Metal rounds allocations up to a page.
+    if (gid >= params->threadCount) return;
+
     uint seed = randomSeeds[gid] ^ (gid * 1099087573u) ^ 0xDEADBEEF;
     if (seed == 0) seed = 0x9E3779B9u;   // xorshift is degenerate at zero
 
@@ -144,6 +154,26 @@ kernel void monteCarloPoker(
         if (!isUsed[i]) availableCards[availableCount++] = i;
     }
 
+    // Cards this deal still has to take from the deck: the rest of the board, plus two
+    // for every opponent.
+    uint neededCards = (5 - params->communityCount) + (params->opponents * 2);
+
+    // The deck cannot seat the deal. Report nothing — a zero `total` makes the host
+    // return nil, and the caller falls back rather than believing this thread.
+    //
+    // Reporting *something* is what made this dangerous. With no cards left the opponent
+    // loop below breaks on its first seat, so `bestOppValue` stays 0, hero's real hand
+    // beats 0, and every one of the 1000 iterations scored a win: the kernel answered a
+    // spot that cannot be dealt with a confident 100%. With a partial board it was worse
+    // still — the board fill is bounded by `communityCount`, not by `availableCount`, so
+    // it read uninitialised stack and fed the garbage to `evaluate5Cards`, where
+    // `counts[r[i]]++` indexes a 15-element array with whatever rank fell out.
+    if (availableCount < neededCards) {
+        results[gid].equityUnits = 0;
+        results[gid].total = 0;
+        return;
+    }
+
     uint equityUnits = 0;
 
     // Pre-allocate shuffle array once outside loop
@@ -155,7 +185,6 @@ kernel void monteCarloPoker(
 
         // Fisher-Yates partial shuffle - only shuffle what we need
         // CRITICAL: Use signed int to avoid unsigned underflow causing infinite loop
-        uint neededCards = (5 - params->communityCount) + (params->opponents * 2);
         for (int i = 0; i < (int)neededCards && i < (int)availableCount; i++) {
             // xorshift32 rather than an LCG: the LCG's low bits have period 2^k, and
             // `% bound` reads exactly those bits, which made consecutive draws

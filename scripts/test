@@ -5,8 +5,9 @@
 # It takes two commands, not one. The engine lives in Packages/PokerCore and its
 # tests are a SwiftPM test target, which Xcode will not run from a project-based
 # scheme — so `xcodebuild -scheme PokerAssistant test` and Cmd-U in Xcode cover only
-# the 8 tests that genuinely need a simulator. The other 46, including every hand
-# evaluation, equity, range and solver assertion, only run through `swift test`.
+# the tests that genuinely need a simulator or Metal. The larger half, including
+# every hand evaluation, equity, range and solver assertion, only runs through
+# `swift test`. No counts here on purpose: a stale number is worse than none.
 #
 # Use this script rather than either command on its own. CI runs the same two steps.
 #

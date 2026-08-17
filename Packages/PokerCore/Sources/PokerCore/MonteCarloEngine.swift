@@ -57,7 +57,10 @@ public final class MonteCarloEngine {
         maxTimeSeconds: Double = 10.0,
         seed: UInt64? = nil
     ) async -> Double {
-        guard hand.holeCards.count == 2 else { return 0.0 }
+        // The same deal-validity gate the enumerators use: two hole cards, at most five
+        // community cards, and no card appearing twice. Duplicate hole cards were being
+        // simulated to a confident 87.0%.
+        guard hand.isValid else { return 0.0 }
 
         // Report GPU not active (CPU mode)
         EngineTelemetry.gpuActive(false)
