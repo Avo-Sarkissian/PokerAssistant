@@ -66,17 +66,17 @@ struct RangeInferenceTests {
     /// button, which read as a 3-bet range inferred from nobody acting. Preflop reads
     /// are in big blinds.
     @Test("An unopened pot is not read as a raise",
-          arguments: ["BTN", "SB", "BB"])
-    func unopenedPotIsNotARaise(position: String) {
+          arguments: Position.allCases)
+    func unopenedPotIsNotARaise(position: Position) {
         let entry = PotEntry.blindsOnly(heroPosition: position, smallBlind: 0.5, bigBlind: 1.0)
         // Villain's street total is what hero must reach to call: their blind plus
         // whatever hero still owes.
-        let heroBlind = position == "SB" ? 0.5 : (position == "BB" ? 1.0 : 0.0)
+        let heroBlind = position == .sb ? 0.5 : (position == .bb ? 1.0 : 0.0)
         let villainWager = entry.toCall + heroBlind
 
         let inferred = OpponentRange.preflopRange(villainWagerInBigBlinds: villainWager / 1.0)
         #expect(inferred == .random,
-                "\(position) with nobody acting inferred \(inferred)")
+                "\(position.rawValue) with nobody acting inferred \(inferred)")
     }
 
     /// Each line has to land in its own tier, strictly tighter than the one before.
@@ -104,8 +104,8 @@ struct RangeInferenceTests {
     @Test("The preflop read does not change with the stake")
     func preflopReadIsScaleFree() {
         for preset in PreflopPreset.allCases {
-            let low = PotEntry.preflop(preset, heroPosition: "BTN", smallBlind: 0.5, bigBlind: 1.0)
-            let high = PotEntry.preflop(preset, heroPosition: "BTN", smallBlind: 2.5, bigBlind: 5.0)
+            let low = PotEntry.preflop(preset, heroPosition: .btn, smallBlind: 0.5, bigBlind: 1.0)
+            let high = PotEntry.preflop(preset, heroPosition: .btn, smallBlind: 2.5, bigBlind: 5.0)
 
             let atOne = OpponentRange.preflopRange(villainWagerInBigBlinds: low.toCall / 1.0)
             let atFive = OpponentRange.preflopRange(villainWagerInBigBlinds: high.toCall / 5.0)
@@ -132,8 +132,8 @@ struct RangeInferenceTests {
 
     /// The unopened pot: just the posted blinds, nobody has raised.
     @Test("Blinds-only spots price correctly",
-          arguments: [("BTN", 1.5, 1.0, 0.4), ("SB", 1.5, 0.5, 0.25), ("BB", 1.5, 0.0, 0.0)])
-    func blindsOnlySpots(position: String, total: Double, call: Double, requiredEquity: Double) {
+          arguments: [(Position.btn, 1.5, 1.0, 0.4), (.sb, 1.5, 0.5, 0.25), (.bb, 1.5, 0.0, 0.0)])
+    func blindsOnlySpots(position: Position, total: Double, call: Double, requiredEquity: Double) {
         let entry = PotEntry.blindsOnly(heroPosition: position, smallBlind: 0.5, bigBlind: 1.0)
 
         #expect(abs(entry.totalPot - total) < 1e-9, "\(position) total \(entry.totalPot)")

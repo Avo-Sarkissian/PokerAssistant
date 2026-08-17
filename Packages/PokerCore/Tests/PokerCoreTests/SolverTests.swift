@@ -8,14 +8,19 @@ import PokerTestSupport
 /// Builds a `GameStateCopy` for the solver directly, with no view model and no
 /// UserDefaults in the way. Building one through the app's `GameState` used to leak
 /// blind levels into the shipping app's defaults; the solver never needed either.
+/// `tableSize` defaults to six because that is the app's own default and the size every
+/// seat assertion in the suite is stated at. It is a *test* default only — `GameStateCopy`
+/// requires it, because relative position changes with it and a silent default would let
+/// the app forget to pass it.
 func spot(hole: String = "Ad Ac",
           board: String = "",
           pot: Double,
           toCall: Double,
           stack: Double = 100,
           villainStack: Double = 100,
-          position: String = "BTN",
+          position: Position = .btn,
           playersInHand: Int = 2,
+          tableSize: Int = 6,
           bigBlind: Double = 1.0,
           heroWagerThisStreet: Double = 0,
           opponentStyle: OpponentStyle = .unknown) -> GameStateCopy {
@@ -35,6 +40,7 @@ func spot(hole: String = "Ad Ac",
         bigBlind: bigBlind,
         opponentStyle: opponentStyle,
         playersInHand: playersInHand,
+        tableSize: tableSize,
         heroWagerThisStreet: heroWagerThisStreet
     )
 }
@@ -78,9 +84,9 @@ struct SolverEVTests {
         let solver = ExploitativeSolver()
         let settings = makeSettings()
 
-        let onButton = solver.solve(gameState: spot(pot: 100, toCall: 50, position: "BTN"),
+        let onButton = solver.solve(gameState: spot(pot: 100, toCall: 50, position: .btn),
                                     myEquity: 0.60, settings: settings)
-        let inSmallBlind = solver.solve(gameState: spot(pot: 100, toCall: 50, position: "SB"),
+        let inSmallBlind = solver.solve(gameState: spot(pot: 100, toCall: 50, position: .sb),
                                         myEquity: 0.60, settings: settings)
 
         #expect(abs(onButton.evCall - inSmallBlind.evCall) < 1e-9,
@@ -130,7 +136,7 @@ struct SolverEVTests {
     @Test("A bad call is priced at its true loss")
     func badCallIsPricedHonestly() {
         let solver = ExploitativeSolver()
-        let result = solver.solve(gameState: spot(pot: 20, toCall: 80, position: "SB"),
+        let result = solver.solve(gameState: spot(pot: 20, toCall: 80, position: .sb),
                                   myEquity: 0.20, settings: makeSettings())
 
         // 0.20 * (20 + 80) - 80 = -60
@@ -253,7 +259,7 @@ struct DecisionConsistencyTests {
         for equity in stride(from: 0.05, through: 0.95, by: 0.05) {
             for pot in [5.0, 30.0, 120.0] {
                 for toCall in [0.0, 4.0, 30.0, 90.0] {
-                    for position in ["BTN", "SB", "BB"] {
+                    for position in Position.seats(tableSize: 6) {
                         for players in [2, 4] {
                             let state = spot(board: "Ks 7h 2d", pot: pot, toCall: toCall,
                                              stack: 200, villainStack: 200,
@@ -268,7 +274,7 @@ struct DecisionConsistencyTests {
                             if chosen < best - 1e-6 && mismatches.count < 8 {
                                 mismatches.append(
                                     "eq \(String(format: "%.2f", equity)) pot \(pot) call \(toCall) " +
-                                    "\(position) \(players)p → \(result.action.displayString) " +
+                                    "\(position.rawValue) \(players)p → \(result.action.displayString) " +
                                     "(ev \(String(format: "%.2f", chosen))) but best was " +
                                     "\(String(format: "%.2f", best))")
                             }

@@ -103,8 +103,11 @@ class GameViewModel: ObservableObject {
             "\(gameState.villainStack)",
             "\(gameState.bigBlind)",
             "\(gameState.playersInHand)",
+            // Which seats exist, and how far hero sits from the button. Leaving it out
+            // let a table-size change go unnoticed while still moving the answer.
+            "\(gameState.tableSize)",
             "\(gameState.heroWagerThisStreet)",
-            gameState.position,
+            gameState.position.rawValue,
             gameState.opponentStyle.rawValue,
             "\(settings?.smallBlind ?? 0)",
             "\(settings?.bigBlind ?? 0)",
@@ -124,8 +127,12 @@ class GameViewModel: ObservableObject {
         // Cancel any existing calculation
         calculationTask?.cancel()
 
-        // The solver reads the blind level off GameState; Settings is the source of truth.
+        // The solver reads the blind level and the table size off GameState; Settings is
+        // the source of truth for both, and a seat outside the table is corrected before
+        // the spot is copied rather than being silently reinterpreted downstream.
         gameState.bigBlind = settingsToUse.bigBlind
+        gameState.tableSize = max(settingsToUse.numberOfPlayers, gameState.playersInHand)
+        gameState.clampSeatToTable()
 
         isCalculating = true
         calculationResult = nil
@@ -220,7 +227,7 @@ class GameViewModel: ObservableObject {
             holeCards: holeCards,
             communityCards: communityCards,
             street: gameState.currentStreet,
-            position: gameState.position,
+            position: gameState.position.rawValue,
             potSize: gameState.potSize,
             toCall: gameState.toCall,
             equity: result.equity,

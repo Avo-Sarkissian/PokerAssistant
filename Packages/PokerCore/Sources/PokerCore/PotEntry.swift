@@ -73,12 +73,12 @@ public struct PotEntry: Equatable, Sendable {
     }
 
     /// The spot before anyone has acted: just the posted blinds.
-    public static func blindsOnly(heroPosition: String, smallBlind: Double, bigBlind: Double) -> PotEntry {
+    public static func blindsOnly(heroPosition: Position, smallBlind: Double, bigBlind: Double) -> PotEntry {
         let owed: Double
         switch heroPosition {
-        case "BB": owed = 0                    // already posted the full blind
-        case "SB": owed = bigBlind - smallBlind // completing
-        default:   owed = bigBlind
+        case .bb: owed = 0                     // already posted the full blind
+        case .sb: owed = bigBlind - smallBlind // completing
+        default:  owed = bigBlind              // every other seat posts nothing
         }
         return PotEntry(potBeforeBet: (smallBlind + bigBlind) - owed, toCall: owed)
     }
@@ -118,15 +118,15 @@ public struct PotEntry: Equatable, Sendable {
     ///   pot before villain's bet = heroAlreadyIn + deadMoney + (villain − toCall)
     ///   toCall                    = villain − heroAlreadyIn
     public static func preflop(_ preset: PreflopPreset,
-                               heroPosition: String,
+                               heroPosition: Position,
                                smallBlind: Double,
                                bigBlind: Double) -> PotEntry {
 
         let heroBlind: Double
         switch heroPosition {
-        case "SB": heroBlind = smallBlind
-        case "BB": heroBlind = bigBlind
-        default:   heroBlind = 0            // the button posts nothing
+        case .sb: heroBlind = smallBlind
+        case .bb: heroBlind = bigBlind
+        default:  heroBlind = 0             // every seat but the blinds posts nothing
         }
 
         let villain = preset.villainWager * bigBlind
@@ -141,7 +141,7 @@ public struct PotEntry: Equatable, Sendable {
             // Hero opened, so only a blind can re-raise. From the small blind the
             // villain can only be the big blind and nothing else is left in the
             // middle — the one line in the grid with no dead money at all.
-            deadMoney = heroPosition == "SB" ? 0 : smallBlind
+            deadMoney = heroPosition == .sb ? 0 : smallBlind
         }
 
         let toCall = max(0, villain - heroAlreadyIn)

@@ -111,12 +111,20 @@ public struct GameStateCopy: Sendable {
     public let deadCards: Set<Card>
     public let stack: Double
     public let villainStack: Double
-    public let position: String
+    public let position: Position
     public let potSize: Double
     public let toCall: Double
     public let bigBlind: Double
     public let opponentStyle: OpponentStyle
     public let playersInHand: Int
+
+    /// Seats dealt in, which decides **which seats exist** and how far hero's seat is
+    /// from the button. Distinct from `playersInHand`: six can be dealt in while two see
+    /// the river, and relative position is a property of the table, not of who folded.
+    ///
+    /// Clamped to the sizes the app offers, and never below `playersInHand` — more
+    /// players contesting a pot than are seated at the table is not a spot.
+    public let tableSize: Int
 
     /// Hero's total contribution to the current street so far: a posted blind, plus any
     /// raise hero has already made this street.
@@ -131,12 +139,13 @@ public struct GameStateCopy: Sendable {
                 deadCards: Set<Card>,
                 stack: Double,
                 villainStack: Double,
-                position: String,
+                position: Position,
                 potSize: Double,
                 toCall: Double,
                 bigBlind: Double,
                 opponentStyle: OpponentStyle,
                 playersInHand: Int,
+                tableSize: Int,
                 heroWagerThisStreet: Double = 0) {
         self.holeCards = holeCards
         self.communityCards = communityCards
@@ -149,8 +158,14 @@ public struct GameStateCopy: Sendable {
         self.bigBlind = bigBlind
         self.opponentStyle = opponentStyle
         self.playersInHand = playersInHand
+        self.tableSize = min(Position.supportedTableSizes.upperBound,
+                             max(Position.supportedTableSizes.lowerBound,
+                                 max(tableSize, playersInHand)))
         self.heroWagerThisStreet = heroWagerThisStreet
     }
+
+    /// Whether hero acts last after the flop, at this table size.
+    public var isInPosition: Bool { position.isInPosition(tableSize: tableSize) }
 
     /// Opponents hero is actually up against right now.
     public var opponentCount: Int { max(1, playersInHand - 1) }
@@ -161,9 +176,9 @@ public struct GameStateCopy: Sendable {
     /// What hero has already put in from a posted blind, before acting.
     public func blindPosted(smallBlind: Double) -> Double {
         switch position {
-        case "SB": return smallBlind
-        case "BB": return bigBlind
-        default:   return 0
+        case .sb: return smallBlind
+        case .bb: return bigBlind
+        default:  return 0
         }
     }
 

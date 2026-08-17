@@ -87,30 +87,30 @@ struct PreflopPresetTests {
     /// The BB-versus-2.5x-open cell at 27.3% is the textbook defence price.
     @Test("Presets reproduce the derived pot odds",
           arguments: [
-            (PreflopPreset.limp,     "BTN", 2.5,  1.0,  0.2857),
-            (PreflopPreset.limp,     "SB",  2.5,  0.5,  0.1667),
-            (PreflopPreset.limp,     "BB",  2.5,  0.0,  0.0),
-            (PreflopPreset.open,     "BTN", 4.0,  2.5,  0.3846),
-            (PreflopPreset.open,     "SB",  4.0,  2.0,  0.3333),
-            (PreflopPreset.open,     "BB",  4.0,  1.5,  0.2727),
-            (PreflopPreset.threeBet, "BTN", 12.0, 6.5,  0.3514),
-            (PreflopPreset.threeBet, "SB",  11.5, 6.5,  0.3611),
-            (PreflopPreset.threeBet, "BB",  12.0, 6.5,  0.3514),
-            (PreflopPreset.fourBet,  "BTN", 35.5, 16.0, 0.3107),
-            (PreflopPreset.fourBet,  "SB",  35.0, 16.0, 0.3140),
-            (PreflopPreset.fourBet,  "BB",  34.5, 16.0, 0.3171),
+            (PreflopPreset.limp,     Position.btn, 2.5,  1.0,  0.2857),
+            (PreflopPreset.limp,     Position.sb,  2.5,  0.5,  0.1667),
+            (PreflopPreset.limp,     Position.bb,  2.5,  0.0,  0.0),
+            (PreflopPreset.open,     Position.btn, 4.0,  2.5,  0.3846),
+            (PreflopPreset.open,     Position.sb,  4.0,  2.0,  0.3333),
+            (PreflopPreset.open,     Position.bb,  4.0,  1.5,  0.2727),
+            (PreflopPreset.threeBet, Position.btn, 12.0, 6.5,  0.3514),
+            (PreflopPreset.threeBet, Position.sb,  11.5, 6.5,  0.3611),
+            (PreflopPreset.threeBet, Position.bb,  12.0, 6.5,  0.3514),
+            (PreflopPreset.fourBet,  Position.btn, 35.5, 16.0, 0.3107),
+            (PreflopPreset.fourBet,  Position.sb,  35.0, 16.0, 0.3140),
+            (PreflopPreset.fourBet,  Position.bb,  34.5, 16.0, 0.3171),
           ])
-    func presetPotOdds(preset: PreflopPreset, position: String,
+    func presetPotOdds(preset: PreflopPreset, position: Position,
                        expectedTotal: Double, expectedCall: Double, expectedEquity: Double) {
         let entry = PotEntry.preflop(preset, heroPosition: position,
                                      smallBlind: 0.5, bigBlind: 1.0)
 
         #expect(abs(entry.totalPot - expectedTotal) < 1e-9,
-                "\(preset.rawValue)/\(position): total pot \(entry.totalPot), expected \(expectedTotal)")
+                "\(preset.rawValue)/\(position.rawValue): total pot \(entry.totalPot), expected \(expectedTotal)")
         #expect(abs(entry.toCall - expectedCall) < 1e-9,
-                "\(preset.rawValue)/\(position): to call \(entry.toCall), expected \(expectedCall)")
+                "\(preset.rawValue)/\(position.rawValue): to call \(entry.toCall), expected \(expectedCall)")
         #expect(abs(entry.requiredEquity - expectedEquity) < 0.0005,
-                "\(preset.rawValue)/\(position): required equity \(entry.requiredEquity), expected \(expectedEquity)")
+                "\(preset.rawValue)/\(position.rawValue): required equity \(entry.requiredEquity), expected \(expectedEquity)")
     }
 
     /// No preset may land on exactly 50%, which is the signature of the old bug that
@@ -118,19 +118,19 @@ struct PreflopPresetTests {
     @Test("No preset demands a coin flip to continue")
     func noPresetDemandsFiftyPercent() {
         for preset in PreflopPreset.allCases {
-            for position in ["BTN", "SB", "BB"] {
+            for position in Position.allCases {
                 let entry = PotEntry.preflop(preset, heroPosition: position,
                                              smallBlind: 0.5, bigBlind: 1.0)
                 #expect(abs(entry.requiredEquity - 0.5) > 0.01,
-                        "\(preset.rawValue)/\(position) needs \(entry.requiredEquity)")
+                        "\(preset.rawValue)/\(position.rawValue) needs \(entry.requiredEquity)")
             }
         }
     }
 
     @Test("Presets scale with the blind level")
     func presetsScaleWithBlinds() {
-        let atOne = PotEntry.preflop(.open, heroPosition: "BB", smallBlind: 0.5, bigBlind: 1.0)
-        let atFive = PotEntry.preflop(.open, heroPosition: "BB", smallBlind: 2.5, bigBlind: 5.0)
+        let atOne = PotEntry.preflop(.open, heroPosition: .bb, smallBlind: 0.5, bigBlind: 1.0)
+        let atFive = PotEntry.preflop(.open, heroPosition: .bb, smallBlind: 2.5, bigBlind: 5.0)
 
         #expect(abs(atFive.totalPot - atOne.totalPot * 5) < 1e-9)
         #expect(abs(atFive.toCall - atOne.toCall * 5) < 1e-9)

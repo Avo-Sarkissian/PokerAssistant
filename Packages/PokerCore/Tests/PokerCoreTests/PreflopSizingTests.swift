@@ -31,7 +31,7 @@ struct PreflopSizingTests {
     private func raiseTo(equity: Double = 0.6,
                          pot: Double,
                          toCall: Double,
-                         position: String = "BTN",
+                         position: Position = .btn,
                          bigBlind: Double = 1.0,
                          stack: Double = 100,
                          heroWagerThisStreet: Double = 0) -> Double {
@@ -99,8 +99,8 @@ struct PreflopSizingTests {
     @Test("Out of position opens larger than in position")
     func outOfPositionOpensLarger() {
         // Button owes the full blind; the small blind owes the completion.
-        let button = raiseTo(pot: 1.5, toCall: 1.0, position: "BTN")
-        let smallBlind = raiseTo(pot: 1.5, toCall: 0.5, position: "SB")
+        let button = raiseTo(pot: 1.5, toCall: 1.0, position: .btn)
+        let smallBlind = raiseTo(pot: 1.5, toCall: 0.5, position: .sb)
 
         #expect(smallBlind > button, "SB to \(smallBlind)bb, BTN to \(button)bb")
     }
@@ -126,15 +126,15 @@ struct PreflopSizingTests {
     @Test("The big blind facing a min-raise re-raises, not min-raises")
     func bigBlindFacingAMinRaiseReRaises() {
         // Button opens to 2bb: 0.5 + 2.0 already in, hero owes 1.0 more.
-        let size = raiseTo(pot: 3.5, toCall: 1.0, position: "BB")
+        let size = raiseTo(pot: 3.5, toCall: 1.0, position: .bb)
         #expect(size >= 6.0, "BB re-raised to only \(size)bb over a 2bb open")
     }
 
     /// One cent either side of the boundary must not double the size.
     @Test("The size does not jump at the min-raise boundary")
     func noCliffAtTheMinRaiseBoundary() {
-        let atBoundary = raiseTo(pot: 3.5, toCall: 1.0, position: "BB")
-        let justOver = raiseTo(pot: 3.52, toCall: 1.01, position: "BB")
+        let atBoundary = raiseTo(pot: 3.5, toCall: 1.0, position: .bb)
+        let justOver = raiseTo(pot: 3.52, toCall: 1.01, position: .bb)
 
         #expect(abs(atBoundary - justOver) < 0.5,
                 "\(atBoundary)bb at the boundary vs \(justOver)bb one cent over")
@@ -148,7 +148,7 @@ struct PreflopSizingTests {
         let stack = 8.0
         let result = solver.solve(
             gameState: spot(hole: "Ad Ac", pot: 4.0, toCall: 2.5, stack: stack,
-                            villainStack: stack, position: "BTN"),
+                            villainStack: stack, position: .btn),
             myEquity: 0.85, settings: makeSettings())
 
         let behind = stack - 2.5 - result.raiseAmount
@@ -196,7 +196,7 @@ struct PreflopSizingTests {
     /// And the read that shares the quantity: a 7.5bb 3-bet is not an opening range.
     @Test("A 3-bet is read as a 3-bet once hero's own raise is counted")
     func threeBetIsReadAsAThreeBet() {
-        let state = spot(hole: "Ad Ac", pot: 10.5, toCall: 5.0, position: "BTN",
+        let state = spot(hole: "Ad Ac", pot: 10.5, toCall: 5.0, position: .btn,
                          bigBlind: 1.0, heroWagerThisStreet: 2.5)
         let wager = state.villainWagerInBigBlinds(smallBlind: 0.5)
 

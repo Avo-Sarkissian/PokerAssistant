@@ -46,7 +46,7 @@ struct PreflopHandClassTests {
         // grade itself.
         func result(_ hole: String, equity: Double) -> ExploitativeSolver.SolverResult {
             solver.solve(gameState: spot(hole: hole, pot: 4.0, toCall: 2.5,
-                                         stack: 100, villainStack: 100, position: "BTN"),
+                                         stack: 100, villainStack: 100, position: .btn),
                          myEquity: equity, settings: settings)
         }
 

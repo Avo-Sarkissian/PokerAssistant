@@ -20,13 +20,24 @@ class GameState: ObservableObject {
     /// player who is already all in.
     @Published var villainStack: Double = 20
 
-    @Published var position: String = "BTN"  // Track position for solver
+    /// Hero's seat. A `Position` rather than a string: as a string, the solver's parser
+    /// mapped anything it did not recognise to the button, so the six seats a nine-handed
+    /// table has beyond BTN/SB/BB were all priced as buttons.
+    @Published var position: Position = .btn
+
     @Published var opponentStyle: OpponentStyle = .unknown
 
     /// How many players are still contesting this pot, hero included.
     /// Distinct from the table size in Settings: by the river most seats have folded,
     /// and pricing a heads-up decision against eight live opponents is badly wrong.
     @Published var playersInHand: Int = 6
+
+    /// Seats dealt in, mirrored from `Settings.numberOfPlayers` the same way `bigBlind` is.
+    ///
+    /// It decides which seats exist and how far hero's seat is from the button, so it has
+    /// to travel with the spot: `playersInHand` cannot stand in for it, because folding
+    /// down to heads-up does not move hero's chair.
+    @Published var tableSize: Int = 6
 
     /// Opponents hero is actually up against right now.
     var opponentCount: Int { max(1, playersInHand - 1) }
@@ -90,11 +101,16 @@ class GameState: ObservableObject {
         }
     }
     
-    // Check if we're in position (acting last)
+    /// Whether hero acts last after the flop.
+    ///
+    /// This used to read `position == "BTN" || position == "CO"`, naming a seat the
+    /// picker could not select — so the "In Position" badge was documentation for a
+    /// feature that did not exist — and it was wrong heads-up, where the small blind
+    /// holds the button and acts last.
     var isInPosition: Bool {
-        position == "BTN" || position == "CO"
+        position.isInPosition(tableSize: tableSize)
     }
-    
+
     /// Start a fresh hand. The pot goes back to the posted blinds: carrying the last
     /// hand's pot forward leaves a huge pot beside a one-blind call, which prices
     /// almost any two cards as a profitable call.
@@ -102,14 +118,29 @@ class GameState: ObservableObject {
         holeCards = [nil, nil]
         communityCards = [nil, nil, nil, nil, nil]
         deadCards = []
-        position = "BTN"
         opponentStyle = .unknown
         self.bigBlind = bigBlind
         self.villainStack = stack
+        // A fresh hand is dealt to every seat, so the two are the same number here and
+        // diverge only as players fold.
         self.playersInHand = max(2, playersInHand)
+        self.tableSize = self.playersInHand
+        // The button is the default seat, but it is not dealt at a two-handed table.
+        position = Position.seats(tableSize: tableSize).contains(.btn) ? .btn : .sb
         potSize = smallBlind + bigBlind
-        toCall = bigBlind          // the button owes the big blind to enter
-        heroWagerThisStreet = 0    // the button posts nothing
+        toCall = bigBlind          // a non-blind seat owes the big blind to enter
+        heroWagerThisStreet = 0    // and posts nothing
+    }
+
+    /// Bring the seat back inside the table after the table size changes.
+    ///
+    /// Selecting UTG at a nine-handed table and then switching to three-handed leaves
+    /// hero in a chair that no longer exists. Falling back to the button is the one
+    /// substitution that is always available above heads-up, and it is explicit here
+    /// rather than being a `default:` case hidden inside the solver.
+    func clampSeatToTable() {
+        guard !position.exists(tableSize: tableSize) else { return }
+        position = Position.btn.exists(tableSize: tableSize) ? .btn : .sb
     }
     
     // Add methods to update pot values
@@ -139,6 +170,7 @@ extension GameStateCopy {
             bigBlind: gameState.bigBlind,
             opponentStyle: gameState.opponentStyle,
             playersInHand: gameState.playersInHand,
+            tableSize: gameState.tableSize,
             heroWagerThisStreet: gameState.heroWagerThisStreet
         )
     }

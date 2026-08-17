@@ -130,6 +130,17 @@ struct HandLifecycleTests {
                 "hero's street wager is not in the fingerprint")
         viewModel.gameState.heroWagerThisStreet = 0
 
+        // The seat sets the bluff premium, the open size and the explanation.
+        viewModel.gameState.position = .sb
+        #expect(viewModel.getCurrentStateString() != baseline, "the seat is not in the fingerprint")
+        viewModel.gameState.position = .btn
+
+        // And the table size sets how far that seat is from the button, so the same seat
+        // at a different table size is a different spot.
+        viewModel.gameState.tableSize = 9
+        #expect(viewModel.getCurrentStateString() != baseline, "table size is not in the fingerprint")
+        viewModel.gameState.tableSize = 6
+
         settings.gameMode = .tournament
         #expect(viewModel.getCurrentStateString() != baseline, "game mode is not in the fingerprint")
         settings.gameMode = .cashGame
@@ -146,6 +157,108 @@ struct HandLifecycleTests {
 
         settings.smallBlind = 0.25
         #expect(viewModel.getCurrentStateString() != baseline, "small blind is not in the fingerprint")
+    }
+}
+
+// MARK: - Seats
+
+/// The app half of backlog #24. `Position` and its table-size arithmetic are covered in
+/// PokerCore; what only exists here is the bridge — the seat the badge reads, the seat
+/// `reset` chooses, and what happens to a selected seat when the table shrinks under it.
+@Suite("Seats and table size")
+@MainActor
+struct SeatStateTests {
+
+    /// `isInPosition` used to be `position == "BTN" || position == "CO"`. "CO" could not
+    /// be selected, so the second half of that test documented a seat the app did not
+    /// have — and the first half was wrong heads-up, where the small blind holds the
+    /// button and the badge read "Out of Position" while hero acted last.
+    @Test("The in-position badge follows the seat and the table size")
+    func inPositionFollowsSeatAndTableSize() {
+        let state = GameState()
+
+        state.tableSize = 6
+        for seat in Position.seats(tableSize: 6) {
+            state.position = seat
+            #expect(state.isInPosition == (seat == .btn),
+                    "6-handed \(seat.rawValue) reported isInPosition = \(state.isInPosition)")
+        }
+
+        state.tableSize = 2
+        state.position = .sb
+        #expect(state.isInPosition, "heads-up the small blind holds the button and acts last")
+        state.position = .bb
+        #expect(!state.isInPosition, "heads-up the big blind acts first after the flop")
+    }
+
+    /// A hand is dealt to every seat, so a fresh hand's table size is its player count.
+    /// Resetting to a two-handed table has to leave hero in a seat that exists: the
+    /// button is not dealt heads-up.
+    @Test("A reset hand seats hero somewhere the table actually deals", arguments: 2...9)
+    func resetChoosesALegalSeat(players: Int) {
+        let snapshot = DefaultsSnapshot()
+        defer { snapshot.restore() }
+
+        let state = GameState()
+        state.position = .utg2          // only exists nine-handed
+        state.reset(smallBlind: 0.5, bigBlind: 1.0, playersInHand: players)
+
+        #expect(state.tableSize == players)
+        #expect(Position.seats(tableSize: players).contains(state.position),
+                "\(players)-handed reset left hero in the \(state.position.rawValue)")
+        #expect(state.position == (players == 2 ? .sb : .btn))
+    }
+
+    /// Choosing UTG at a nine-handed table and then switching Settings to three-handed
+    /// leaves hero in a chair that is no longer dealt. The correction is explicit and
+    /// testable rather than a `default:` case buried in the solver.
+    @Test("Shrinking the table moves hero out of a seat it no longer deals")
+    func shrinkingTheTableMovesHero() {
+        let state = GameState()
+        state.tableSize = 9
+        state.position = .utg1
+
+        state.tableSize = 3
+        state.clampSeatToTable()
+        #expect(state.position == .btn, "hero stayed in the \(state.position.rawValue) three-handed")
+
+        state.tableSize = 2
+        state.clampSeatToTable()
+        #expect(state.position == .sb, "hero stayed in the \(state.position.rawValue) heads-up")
+
+        // A seat that still exists is left alone.
+        state.tableSize = 6
+        state.position = .co
+        state.clampSeatToTable()
+        #expect(state.position == .co, "the cutoff exists six-handed and was moved anyway")
+    }
+
+    /// The table size has to reach the solver's copy of the spot, or every positional
+    /// adjustment is computed against the wrong table.
+    @Test("The table size and seat travel into the solver's copy")
+    func tableSizeReachesTheSolverCopy() {
+        let state = GameState()
+        state.tableSize = 9
+        state.position = .hj
+        state.playersInHand = 4
+
+        let copy = GameStateCopy(from: state)
+        #expect(copy.tableSize == 9)
+        #expect(copy.position == .hj)
+        #expect(!copy.isInPosition, "the hijack is not the last seat to act nine-handed")
+    }
+
+    /// More players contesting a pot than are seated at the table is not a spot, and the
+    /// solver's copy is the last place it can be caught.
+    @Test("The solver's copy never seats fewer players than are in the hand")
+    func tableSizeNeverBelowPlayersInHand() {
+        let state = GameState()
+        state.tableSize = 2
+        state.position = .sb
+        state.playersInHand = 6
+
+        #expect(GameStateCopy(from: state).tableSize >= 6,
+                "six players contested a pot at a table seating \(GameStateCopy(from: state).tableSize)")
     }
 }
 

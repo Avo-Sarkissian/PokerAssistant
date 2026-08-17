@@ -6,8 +6,12 @@ struct MainGameView: View {
     @EnvironmentObject var settings: Settings
     @State private var selectedCardIndex: CardSelectionType?
     // Position Toggle State
-    @State private var selectedPosition: String = "BTN"
-    let positions = ["BTN", "SB", "BB"]
+    @State private var selectedPosition: Position = .btn
+
+    /// Every seat the configured table actually deals. This offered BTN/SB/BB regardless
+    /// of the table size, so six of a nine-handed table's seats could not be chosen — and
+    /// the solver priced anything else as a button anyway.
+    private var seats: [Position] { Position.seats(tableSize: settings.numberOfPlayers) }
 
     enum CardSelectionType: Identifiable {
         case hole(Int)
@@ -27,29 +31,41 @@ struct MainGameView: View {
             VStack(spacing: 16) {
                     
                     // --- POSITION & STACK HEADER ---
-                    HStack(spacing: 12) {
-                        // Position Toggle
-                        VStack(alignment: .leading, spacing: 4) {
+                    //
+                    // The seat row takes the full width and the stack sits on the label
+                    // line beside it. Sharing one row with the stack left only enough
+                    // space for five chips, so the big blind was scrolled off screen at
+                    // the app's default six-handed table.
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
                             Text("POSITION")
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
-
-                            Picker("Position", selection: $selectedPosition) {
-                                ForEach(positions, id: \.self) { pos in
-                                    Text(pos).tag(pos)
-                                }
-                            }
-                            .pickerStyle(SegmentedPickerStyle())
-                            .frame(width: 200)
-                            .onChange(of: selectedPosition) { _, newVal in
-                                updateForPosition(newVal)
-                            }
+                            Spacer()
+                            StackInfoView()
                         }
 
-                        Spacer()
-
-                        // Stack Display
-                        StackInfoView()
+                        // A segmented control cannot show nine seats legibly on a phone,
+                        // so the seats are a row of chips that scrolls when it has to.
+                        // Nine seats do not fit, and the selected one has to be visible
+                        // without scrolling for it: at a nine-handed table the button was
+                        // half off the right edge on launch.
+                        ScrollViewReader { seatScroll in
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 6) {
+                                    ForEach(seats) { seat in
+                                        seatChip(seat).id(seat)
+                                    }
+                                }
+                                .padding(.horizontal, 1)
+                            }
+                            .onAppear { seatScroll.scrollTo(selectedPosition, anchor: .center) }
+                            .onChange(of: selectedPosition) { _, seat in
+                                withAnimation(.easeOut(duration: 0.2)) {
+                                    seatScroll.scrollTo(seat, anchor: .center)
+                                }
+                            }
+                        }
                     }
                     .padding(.horizontal)
 
@@ -95,7 +111,7 @@ struct MainGameView: View {
                     // --- RESET BUTTON ---
                     Button(action: {
                         gameViewModel.resetHand()
-                        selectedPosition = "BTN"
+                        selectedPosition = gameViewModel.gameState.position
                     }) {
                         Label("Reset Hand", systemImage: "arrow.clockwise")
                             .font(.caption)
@@ -123,6 +139,19 @@ struct MainGameView: View {
             // Store position in game state
             gameViewModel.gameState.position = selectedPosition
         }
+        // Settings is a sheet over this view, so `onAppear` does not run again when it is
+        // dismissed: without this, changing the table size left the seat row showing a
+        // chair the table no longer deals until the hand was reset.
+        .onChange(of: settings.numberOfPlayers) { _, newSize in
+            gameViewModel.gameState.tableSize = newSize
+            if gameViewModel.gameState.playersInHand > newSize {
+                gameViewModel.gameState.playersInHand = newSize
+            }
+            if !selectedPosition.exists(tableSize: newSize) {
+                selectedPosition = Position.btn.exists(tableSize: newSize) ? .btn : .sb
+                updateForPosition(selectedPosition)
+            }
+        }
         .sheet(item: $selectedCardIndex) { selection in
             CardSelectorView(
                 selectedCard: binding(for: selection),
@@ -137,32 +166,76 @@ struct MainGameView: View {
     private var isPostFlop: Bool {
         gameViewModel.gameState.communityCards.compactMap { $0 }.count >= 3
     }
-    
-    private var positionExplanation: String {
-        if isPostFlop {
-            switch selectedPosition {
-            case "BTN":
-                return "Post-flop: You act LAST (best position). Maximum information before deciding."
-            case "SB":
-                return "Post-flop: You act FIRST. Out of position against everyone."
-            case "BB":
-                return "Post-flop: You act SECOND. Out of position except vs SB."
-            default:
-                return ""
-            }
-        } else {
-            switch selectedPosition {
-            case "BTN":
-                return "Button: Best position. You act last post-flop. Widest opening range."
-            case "SB":
-                return "Small Blind: Posted $\(String(format: "%.2f", settings.smallBlind)). Need $\(String(format: "%.2f", settings.smallBlind)) more to call."
-            case "BB":
-                return "Big Blind: Posted $\(String(format: "%.2f", settings.bigBlind)). You can check if no raise."
-            default:
-                return ""
-            }
+
+    @ViewBuilder
+    private func seatChip(_ seat: Position) -> some View {
+        let isSelected = selectedPosition == seat
+        Button {
+            selectedPosition = seat
+            updateForPosition(seat)
+        } label: {
+            Text(seat.rawValue)
+                .font(.caption.weight(isSelected ? .semibold : .regular))
+                .monospacedDigit()
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(isSelected ? Color.blue : Color(.systemGray5))
+                .foregroundColor(isSelected ? .white : .primary)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(ScaleButtonStyle())
+        .accessibilityLabel(seatName(seat))
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+
+    /// Spelled out for the accessibility label and the explanation line. Exhaustive on
+    /// purpose: a new seat cannot be added without naming it.
+    private func seatName(_ seat: Position) -> String {
+        switch seat {
+        case .utg:  return "Under the gun"
+        case .utg1: return "Under the gun plus one"
+        case .utg2: return "Under the gun plus two"
+        case .lj:   return "Lojack"
+        case .hj:   return "Hijack"
+        case .co:   return "Cutoff"
+        case .btn:  return "Button"
+        case .sb:   return "Small blind"
+        case .bb:   return "Big blind"
         }
     }
+
+    /// Where hero acts, said in the terms the seat actually implies at *this* table size.
+    /// The old version hard-coded three seats and returned an empty string for anything
+    /// else, and told the small blind it was out of position even heads-up, where the
+    /// small blind holds the button.
+    private var positionExplanation: String {
+        let tableSize = settings.numberOfPlayers
+        let inPosition = selectedPosition.isInPosition(tableSize: tableSize)
+        let after = tableSize - 1 - selectedPosition.postflopActionIndex(tableSize: tableSize)
+        let name = seatName(selectedPosition)
+
+        if isPostFlop {
+            if inPosition {
+                return "\(name): you act LAST — every other player has to act before you."
+            }
+            return "\(name): \(after) player\(after == 1 ? "" : "s") act after you on every street."
+        }
+
+        switch selectedPosition {
+        case .sb:
+            let owed = settings.bigBlind - settings.smallBlind
+            return "Small blind: posted $\(money(settings.smallBlind)), $\(money(owed)) more to call"
+                + (inPosition ? ". You hold the button heads-up." : ". Out of position after the flop.")
+        case .bb:
+            return "Big blind: posted $\(money(settings.bigBlind)). You act last pre-flop and can check if nobody raises."
+        default:
+            let toAct = tableSize - 1 - seats.firstIndex(of: selectedPosition)!
+            return "\(name): \(toAct) player\(toAct == 1 ? "" : "s") still to act behind you pre-flop"
+                + (inPosition ? ", and you act last after the flop." : ".")
+        }
+    }
+
+    private func money(_ value: Double) -> String { String(format: "%.2f", value) }
     
     private func initializePotWithBlinds() {
         // Seed the pot with the posted blinds if it has not been set yet.
@@ -171,8 +244,18 @@ struct MainGameView: View {
             gameViewModel.gameState.potSize = blindsTotal
         }
         gameViewModel.gameState.bigBlind = settings.bigBlind
-        if gameViewModel.gameState.playersInHand > settings.numberOfPlayers {
+        gameViewModel.gameState.tableSize = settings.numberOfPlayers
+        if gameViewModel.gameState.potSize <= blindsTotal {
+            // Nothing entered yet, so this is a fresh hand: every seat is dealt in.
+            // Clamping down alone left a nine-handed table showing six live players.
             gameViewModel.gameState.playersInHand = settings.numberOfPlayers
+        } else if gameViewModel.gameState.playersInHand > settings.numberOfPlayers {
+            gameViewModel.gameState.playersInHand = settings.numberOfPlayers
+        }
+        // A seat the table no longer deals — UTG after switching to three-handed — has to
+        // move before it is shown as selected.
+        if !selectedPosition.exists(tableSize: settings.numberOfPlayers) {
+            selectedPosition = Position.btn.exists(tableSize: settings.numberOfPlayers) ? .btn : .sb
         }
         // Only seed the blinds when nothing has been entered for this hand yet.
         if gameViewModel.gameState.potSize <= blindsTotal {
@@ -181,8 +264,8 @@ struct MainGameView: View {
             gameViewModel.gameState.position = selectedPosition
         }
     }
-    
-    private func updateForPosition(_ pos: String) {
+
+    private func updateForPosition(_ pos: Position) {
         // Preflop, changing seat changes what hero owes. Write the whole spot rather
         // than toCall alone: the pot and the bet have to stay consistent or the
         // derived "pot before their bet" silently absorbs the difference.
@@ -194,7 +277,7 @@ struct MainGameView: View {
             gameViewModel.gameState.toCall = entry.toCall
             // Nobody has raised, so hero's only contribution is this seat's blind.
             gameViewModel.gameState.heroWagerThisStreet =
-                pos == "SB" ? settings.smallBlind : (pos == "BB" ? settings.bigBlind : 0)
+                pos == .sb ? settings.smallBlind : (pos == .bb ? settings.bigBlind : 0)
         }
         gameViewModel.gameState.position = pos
     }
@@ -392,7 +475,7 @@ struct CardView: View {
 struct PotInfoViewEnhanced: View {
     @EnvironmentObject var gameViewModel: GameViewModel
     @EnvironmentObject var settings: Settings
-    @Binding var selectedPosition: String
+    @Binding var selectedPosition: Position
 
     @State private var editingPot = false
     @State private var editingCall = false
@@ -482,7 +565,9 @@ struct PotInfoViewEnhanced: View {
             Spacer()
 
             Stepper("") {
-                gameViewModel.gameState.playersInHand = min(9, gameViewModel.gameState.playersInHand + 1)
+                // Never more players contesting the pot than are seated at the table.
+                gameViewModel.gameState.playersInHand =
+                    min(gameViewModel.gameState.tableSize, gameViewModel.gameState.playersInHand + 1)
             } onDecrement: {
                 gameViewModel.gameState.playersInHand = max(2, gameViewModel.gameState.playersInHand - 1)
             }
@@ -580,8 +665,8 @@ struct PotInfoViewEnhanced: View {
                         Button {
                             // The preset knows what hero already had in; `commit` only
                             // sees the flattened pot, so pass it explicitly.
-                            let heroBlind = selectedPosition == "SB" ? settings.smallBlind
-                                : (selectedPosition == "BB" ? settings.bigBlind : 0)
+                            let heroBlind = selectedPosition == .sb ? settings.smallBlind
+                                : (selectedPosition == .bb ? settings.bigBlind : 0)
                             commit(PotEntry.preflop(preset,
                                                     heroPosition: selectedPosition,
                                                     smallBlind: settings.smallBlind,

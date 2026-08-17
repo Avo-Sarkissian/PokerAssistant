@@ -27,7 +27,7 @@ struct SemiBluffTests {
         // Villain bet 30 into 30 on a dry flop. Hero has 20% equity and the deep stack
         // to make a real raise.
         let state = spot(board: "Ks 7h 2d", pot: 60, toCall: 30,
-                         stack: 200, villainStack: 200, position: "BTN")
+                         stack: 200, villainStack: 200, position: .btn)
         let result = solver.solve(gameState: state, myEquity: 0.20, settings: makeSettings())
 
         // The preconditions of the claim, asserted rather than assumed.
@@ -59,7 +59,7 @@ struct SemiBluffTests {
         // Nothing to call, so hero is choosing between checking and betting: the raise
         // is paid for by fold equity alone.
         let state = spot(board: "Ks 7h 2d", pot: 40, toCall: 0,
-                         stack: 400, villainStack: 400, position: "BTN")
+                         stack: 400, villainStack: 400, position: .btn)
 
         let asBluff = solver.solve(gameState: state, myEquity: 0.30, settings: settings)
         #expect(ExploitativeSolver.HandStrength(equity: 0.30) == .bluff)
@@ -74,7 +74,7 @@ struct SemiBluffTests {
         // Same spot from the small blind, where the premium is 0.6 rather than 1.3.
         let outOfPosition = solver.solve(
             gameState: spot(board: "Ks 7h 2d", pot: 40, toCall: 0,
-                            stack: 400, villainStack: 400, position: "SB"),
+                            stack: 400, villainStack: 400, position: .sb),
             myEquity: 0.30, settings: settings)
 
         #expect(outOfPosition.evRaise < asBluff.evRaise,
