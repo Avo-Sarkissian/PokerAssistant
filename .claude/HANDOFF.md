@@ -2,7 +2,7 @@
 
 Continuing a correctness overhaul of PokerAssistant, a Texas Hold'em decision-assistant
 iOS app (SwiftUI, Metal GPU compute). Work so far is on branch
-`fix/evaluator-correctness` — 9 commits, nothing pushed, `main` untouched.
+`fix/evaluator-correctness` — 17 commits, nothing pushed, `main` untouched.
 
 ## Run the tests with `./scripts/test`
 
@@ -17,9 +17,13 @@ range suites finish in 0.04s.
 ## Where things stand
 
 An exhaustive audit produced 217 verified findings, consolidated into a ranked
-95-item backlog. **30 items are shipped, 1 withdrawn.** The test suite went from a
-single empty stub to **98 cases across 26 suites, all passing** (70 in PokerCore,
-28 in the app target).
+95-item backlog. **33 items are shipped, 1 withdrawn.** The test suite went from a
+single empty stub to **167 cases across 37 suites, all passing** (130 in PokerCore,
+37 in the app target).
+
+Batch D is done: #24, #28 and #29 are closed. Item 28 was closed as **stale** — the
+fold-below-pot-odds guard it describes went away with `bd2bedf`, verified by splicing the
+guard back in and watching the new test fail.
 
 - Audit report: https://claude.ai/code/artifact/0b6a3220-8588-499e-beb4-655af33f4a71
 - Ranked backlog: https://claude.ai/code/artifact/c3758e78-e7b6-46ec-8b1e-6ee4b26937bd
@@ -47,44 +51,94 @@ Shipped, by commit:
 | `a596903` | `Packages/PokerCore` extracted (#83); seeded runs made reproducible under load; `scripts/test` |
 | `c3a41ac` | Batch A guards (#33, #34, #35): short-stack call EV, `Card` value equality, deal validation pushed into the engines, enumerator bounds, Metal `gid` and starved-deck guards |
 | `6aa9d45` | Preflop sizing and range reads in big blinds (#25); combo-weighted range widths (#23) |
-| _(this one)_ | Hero's committed-this-street amount carried into the input model, so villain's raise is measured correctly |
+| `f1c3bfc` | Hero's committed-this-street amount carried into the input model, so villain's raise is measured correctly |
+| `bbe0a5f` | `scripts/test` resolves a simulator that exists on this machine |
+| `d339bde` | #28 verified stale; the semi-bluff line pinned |
+| `f3fbfad` | #29 first attempt — **superseded**, see `c6d8824` |
+| `b6d72f8` | #24 — nine-seat `Position`, table size in the spot, heads-up position fixed |
+| `c6d8824` | Adversarial review response: a launch crash, the heads-up reset pot, #29 reverted the other way, the bluff premium re-keyed, five vacuous tests |
 
 Equity is now within **0.20 percentage points** of published values where the exact
 path runs, down from being wrong by up to 36.
 
 ## Do this next, in order
 
-Batch A (guards) is **done** — see the commit table above. Backlog items 33, 34 and 35 are
-closed by it, and item 34 was closed as a side effect: the kernel's new "deck cannot seat
-this deal" early-return means the board fill can no longer read uninitialised memory.
+**Batch A and Batch D are done.** Backlog items 24, 28, 29, 33, 34, 35 are closed;
+21 belongs with Batch E.
 
-**1. Batch D — the rest.** Items 24, 29, 21, 28:
-- **24** (High/Small, touches the UI) only BTN/SB/BB exist at a nine-handed table, so
-  every other seat silently maps to button-level aggression and a banner names a "CO"
-  that cannot be selected. Make `Position` an enum driven by table size.
-- **29** (Med/Med, package-local) one ranking list serves both hero's hand class and
-  opponent-range construction, which want opposite orderings — K6o grades above 65s
-  despite ranking 27 places worse.
-- **28** re-verify before doing anything: the backlog says the fold-below-pot-odds guard
-  makes the bluff branch unreachable, but `makeDecision` was rewritten to EV-argmax in
-  `bd2bedf`, so the finding is probably stale.
-- **21** is Large and depends on range-conditioned equity; it belongs with Batch E.
+**1. The external validation harness.** Nothing has changed about the reason this is
+next — every strategic constant is still hand-authored — but Batch D produced two
+concrete anchors worth building it around, and one of them is decisive:
 
-**2. Then: an external validation harness — recommended ahead of Batch E.**
-Every defect that mattered in the last three sessions was found by comparing against
-something *outside* the code: the reference evaluator, published equities, an adversarial
-reader, or measuring what the sizing actually emitted. No strategic constant has that.
-Fold-equity rates, board-texture factors, SPR bands, the 169-hand chart's ordering, and
-now the preflop tier boundaries and open sizes written in `6aa9d45` — all hand-authored,
-none backtested. Items 21, 31 and 32 build a continuation model *on top of* these, so
-validating them first is what makes that work worth doing.
+- **A 7-card category census.** Enumerate all C(52,7) = 133,784,560 seven-card hands,
+  bucket by `evaluate(...) / 1_000_000`, and compare to the published counts: straight
+  flush 41,584 · quads 224,848 · full house 3,473,184 · flush 4,047,644 · straight
+  6,180,020 · trips 6,461,620 · two pair 31,433,400 · one pair 58,627,800 · high card
+  23,294,460. Those sum to exactly C(52,7), which self-checks the table. This is the
+  strongest external validation available to this repo and it needs no network, no
+  solver and no reference data beyond nine integers. Budget one CPU pass; keep it out of
+  the fast loop.
+- **The α / MDF identity for fold equity.** Facing a bet of `b` pots, a balanced defender
+  folds exactly `α = b/(1+b)`. Measured against `foldEquityForRange`: at b=0.3 the model
+  credits 0.56 against α=0.231 (2.4x), at b=0.5 0.63 vs 0.333 (1.9x), at b=1.0 0.77 vs
+  0.50 (1.5x), at b=1.5 0.85 vs 0.60 (1.4x) — so it over-credits *most* at small sizes,
+  and the ratio falls as the bet grows, which is backwards. Meanwhile `.veryTight` folds
+  0.225 against α=0.333, i.e. **below** a balanced defender, which makes bluffing a tight
+  range unprofitable by construction. The solver's own algebra satisfies the identity
+  exactly (a zero-equity bet is +EV iff fold equity > α), so a test can assert the
+  identity and separately *report* the multiple, rather than baking in a number.
+- Extend the published-equity anchors (currently four hands) with classic matchups and
+  the AA-vs-N-opponents ladder, and check the 169-hand order against published opening
+  range *widths* by position.
 
-The `HandStrength` cutoffs (0.85/0.70/0.50/0.35) were calibrated against equity-vs-random;
-35 of 75 swept spot/range pairs land in a different bucket once equity is range-conditioned.
-That is backlog #32, and it is what blocks re-enabling #30's routing.
+**2. Batch E — the range engine.** Items 31, 32, and re-enabling 30's routing behind a
+board-conditioned continuation model. See the trap below before starting. Note #32 got
+more urgent, not less: the `HandStrength` equity cutoffs are now applied to *postflop*
+equity only, and postflop equity is deliberately vs-random, so the cutoffs and their
+input finally agree — but they are still the values calibrated by hand.
 
-**3. Batch E — the range engine.** Items 31, 32, and re-enabling 30's routing behind a
-board-conditioned continuation model. See the trap below before starting.
+**3. Found by the Batch D review, deliberately deferred, all with numbers:**
+
+- **A cutoff whose button folded is in position, and the app says otherwise.** It sizes
+  1.1x instead of 0.9x — $18.00 against $14.50 into a 40 pot — and the badge reads "Out
+  of Position". "Hero opened the CO, the BB called" is the most common flop in 6-max.
+  This is a **regression against the pre-#24 app**, where the picker offered only
+  BTN/SB/BB so that user selected BTN and got the right answer. Fixing it needs to know
+  *which* seats folded, which the app does not collect; the honest fix is probably an
+  explicit "I act last after the flop" input rather than a guess.
+- **`PotEntry.preflop` double-counts villain's posted blind whenever villain is a blind.**
+  Heads-up "Open / SB" — the button facing a big-blind raise, *the* heads-up spot —
+  computes a 4.0 pot where the truth is 3.0, understating required equity by 6.7 points
+  (33.3% shown against 40.0% true). Also fires 6-handed when villain is the small blind.
+  Pre-existing; needs villain's seat.
+- **`bluffFrequencyMultiplier` is dimensionally suspect.** Villain cannot see hero's
+  cards, so hero's *hand* should not move villain's fold rate at all; villain can see
+  hero's *seat*, which argues a late-position bettor is called looser and the sign is
+  backwards. It is the only route position takes into raise EV, so removing it would
+  collapse the nine seats to two groups. Wants the harness first.
+- **`.bluff` sizes larger than `.weak` postflop** (0.40 vs 0.33), so the grade ladder is
+  not monotone in sizing. Pre-existing.
+- **`EquityCalculator`'s preflop cache-miss fall-through is dead.** The comment claims a
+  miss continues to a higher-accuracy GPU/CPU run, but `PreflopEquityTable.equity`
+  returns the value it just computed, so the deeper `CalculationDepth` settings never
+  apply preflop.
+- **The blind level has no `onChange`.** #24 added one for `numberOfPlayers` because
+  Settings is a sheet and `onAppear` never fires again; `smallBlind`/`bigBlind` are
+  mirrored the same way and did not get one. Change the blinds mid-session and the pot
+  stays seeded at the old level until Reset.
+- **Disabling "Track Opponents" leaves `opponentStyle` live.** The selector is hidden but
+  the stored style still short-circuits bet-size range inference, so villain stays a
+  `.wide` range forever with no control on screen.
+- **`ResultView` mixes live state into a snapshot card.** The "In Position" badge and the
+  "Need X% to call" check read current game state while everything else comes from the
+  `CalculationResult` captured at solve time, so tapping a seat flips the badge above a
+  reasoning string that still says the opposite.
+- **`ResultView`'s "RAISE to" figure omits hero's posted blind**, so a small-blind open
+  sized to 3.0bb displays as "RAISE to $2.50" — the same number shown for a button open,
+  hiding the out-of-position premium the sizing deliberately adds.
+- **Preflop tier boundaries are absolute in big blinds**, so a 20bb shove reads as a
+  4-bet range. Right for 100bb, wrong for 25bb; the boundaries probably want to scale
+  with the effective stack.
 
 ## Traps that already cost time
 
@@ -123,6 +177,25 @@ board-conditioned continuation model. See the trap below before starting.
   order; the Metal side is quoted in that file's doc comment and is still only checked by
   the GPU-vs-exact agreement tests, which fail loudly but not precisely.
 - Don't edit files while a review workflow is reading them.
+- **A `View`'s `private var` cannot be tested, and that is where the crash was.** #24
+  shipped a force-unwrap in `positionExplanation` that trapped on launch at a two-handed
+  table. No test in either target could reach it. Anything with a branch in it belongs in
+  a value type — `SeatExplanation` is the pattern.
+- **`@State` cannot be initialised from `Settings`, and every corrector runs after the
+  first body pass.** `onAppear` and `onChange` are both too late to protect the body that
+  reads the stale value. Resolve it in the body instead.
+- **`simctl spawn defaults write` does not reach the app's `@AppStorage`.** Writing the
+  container's plist directly does not either — `cfprefsd` has it cached. Two attempts
+  failed; a preference-dependent UI state could not be forced for a screenshot. Cover it
+  with a test instead.
+- **`MonteCarloEngine.simulate` stops at the first 50K batch** whenever
+  `confidenceThreshold >= 0.0022`, whatever `iterations` says, because that is the
+  standard error at n=50,000 and p≈0.5. `PreflopEquityTable` asked for 200K at 0.005 and
+  got 50K, then cached it in `UserDefaults` permanently. Pass a threshold below the SE
+  the requested count actually reaches, and bump `schemaVersion` when you do.
+- **Grading anything by preflop equity couples it to the opponent count.** Equity falls
+  mechanically as players are added — AA against eight opponents is 34.3% — so any fixed
+  cutoff makes aces trash nine-handed. Preflop grading is chart-based for this reason.
 
 ## How to work
 
