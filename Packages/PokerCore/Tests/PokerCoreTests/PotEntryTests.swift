@@ -102,8 +102,8 @@ struct PreflopPresetTests {
             (PreflopPreset.threeBet, Position.sb,  11.5, 6.5,  0.3611),
             (PreflopPreset.threeBet, Position.bb,  11.5, 6.5,  0.3611),
             (PreflopPreset.fourBet,  Position.btn, 35.5, 16.0, 0.3107),
-            (PreflopPreset.fourBet,  Position.sb,  35.0, 16.0, 0.3140),
-            (PreflopPreset.fourBet,  Position.bb,  34.5, 16.0, 0.3171),
+            (PreflopPreset.fourBet,  Position.sb,  35.0, 16.0, 0.3137),
+            (PreflopPreset.fourBet,  Position.bb,  34.5, 16.0, 0.3168),
           ])
     func presetPotOdds(preset: PreflopPreset, position: Position,
                        expectedTotal: Double, expectedCall: Double, expectedEquity: Double) {
@@ -114,7 +114,9 @@ struct PreflopPresetTests {
                 "\(preset.rawValue)/\(position.rawValue): total pot \(entry.totalPot), expected \(expectedTotal)")
         #expect(abs(entry.toCall - expectedCall) < 1e-9,
                 "\(preset.rawValue)/\(position.rawValue): to call \(entry.toCall), expected \(expectedCall)")
-        #expect(abs(entry.requiredEquity - expectedEquity) < 0.0005,
+        // Tight enough that a wrong fourth decimal is a failure rather than a rounding.
+        // Two cells were out by 0.0003 and passed on a 0.0005 tolerance.
+        #expect(abs(entry.requiredEquity - expectedEquity) < 0.0001,
                 "\(preset.rawValue)/\(position.rawValue): required equity \(entry.requiredEquity), expected \(expectedEquity)")
     }
 
@@ -153,10 +155,13 @@ struct PreflopPresetTests {
 @Suite("Changing the stake")
 struct BlindChangeTests {
 
+    private let cheap = Stake(smallBlind: 0.50, bigBlind: 1.00)
+    private let dear = Stake(smallBlind: 1.00, bigBlind: 2.00)
+
     @Test("A fresh hand is re-seeded at the new stake")
     func aFreshHandFollowsTheStake() {
         // $0.50/$1 to $1/$2, with nothing entered: the pot is still just the blinds.
-        let change = BlindChange(previousBlindTotal: 1.50, newBlindTotal: 3.00)
+        let change = BlindChange(from: cheap, to: dear)
         #expect(change.reseededPot(currentPot: 1.50) == 3.00)
     }
 
@@ -164,25 +169,45 @@ struct BlindChangeTests {
     /// goes to Settings must not come back to find it discarded.
     @Test("A hand in progress keeps the pot the user entered")
     func aHandInProgressIsLeftAlone() {
-        let change = BlindChange(previousBlindTotal: 1.50, newBlindTotal: 3.00)
+        let change = BlindChange(from: cheap, to: dear)
         #expect(change.reseededPot(currentPot: 42.00) == nil)
     }
 
     /// Moving *down* in stake has to re-seed too. Testing only the upward direction would
     /// pass against a rule that compared the pot with the new blinds rather than the old
-    /// ones — 1.50 is above a new total of 0.75, so that rule would leave a fresh hand
-    /// sitting at the previous stake.
+    /// ones — 3.00 is above a new total of 1.50, so that rule would leave a fresh hand
+    /// sitting at the previous stake. It is also the direction a half-updated observer
+    /// gets wrong: an earlier wiring watched each blind separately, and dropping $1/$2 to
+    /// $0.50/$1 satisfied neither callback.
     @Test("Dropping to a smaller stake re-seeds a fresh hand")
     func droppingStakeAlsoReseeds() {
-        let change = BlindChange(previousBlindTotal: 1.50, newBlindTotal: 0.75)
-        #expect(change.reseededPot(currentPot: 1.50) == 0.75)
+        let change = BlindChange(from: dear, to: cheap)
+        #expect(change.reseededPot(currentPot: 3.00) == 1.50)
+    }
+
+    /// Both blinds move together, and the question is asked once with both old values in
+    /// hand. Asking it twice, once per blind, is what shipped broken: each callback sees
+    /// its own previous value beside the other's already-updated one.
+    @Test("A stake change is one question, not two half-updated ones")
+    func aStakeChangeIsOneQuestion() {
+        let downward = BlindChange(from: dear, to: cheap)
+        #expect(downward.previous.total == 3.00)
+        #expect(downward.updated.total == 1.50)
+        // The two half-updated totals a per-blind observer would have compared against.
+        let halfUpdated = [Stake(smallBlind: dear.smallBlind, bigBlind: cheap.bigBlind).total,
+                           Stake(smallBlind: cheap.smallBlind, bigBlind: dear.bigBlind).total]
+        for total in halfUpdated {
+            #expect(total < 3.00,
+                    Comment(rawValue: "a fresh 3.00 pot is above the half-updated total "
+                            + "\(total), which is why neither callback fired"))
+        }
     }
 
     /// Floating point: a pot seeded as 0.5 + 1.0 must still count as untouched.
     @Test("A pot seeded from the blinds counts as untouched")
     func seededPotCountsAsUntouched() {
         let seeded = 0.5 + 1.0
-        let change = BlindChange(previousBlindTotal: 1.50, newBlindTotal: 3.00)
+        let change = BlindChange(from: cheap, to: dear)
         #expect(change.reseededPot(currentPot: seeded) == 3.00)
     }
 }
@@ -264,22 +289,46 @@ struct VillainBlindTests {
         #expect(entry.toCall == 6.5, Comment(rawValue: "to call \(entry.toCall)"))
     }
 
-    /// Whatever else changes, no preset may put more in the middle than the players
-    /// actually committed. This is the invariant the double-count broke.
-    @Test("No preset invents money",
+    /// Two-handed there is no third player, so the pot is *exactly* what the two of them
+    /// put in — no dead money exists to be counted at all. That is the invariant the
+    /// double-count broke, and it is worth stating separately because the obvious version
+    /// of it does not: "the pot is no more than both wagers plus both blinds" is an
+    /// algebraic identity that the old formula satisfied too, and a test asserting it
+    /// would have passed against the very bug this suite exists for.
+    @Test("Two-handed, the pot is exactly what the two players put in",
           arguments: [PreflopPreset.limp, .open, .threeBet, .fourBet],
-          [2, 6, 9])
-    func noPresetInventsMoney(preset: PreflopPreset, tableSize: Int) {
+          [Position.sb, Position.bb])
+    func headsUpPotIsExactlyTheTwoContributions(preset: PreflopPreset, hero: Position) {
+        let entry = PotEntry.preflop(preset, heroPosition: hero, tableSize: 2,
+                                     smallBlind: sb, bigBlind: bb)
+        let heroIn = max(preset.heroPriorWager * bb, hero == .sb ? sb : bb)
+        let villainIn = preset.villainWager * bb
+
+        #expect(abs(entry.totalPot - (heroIn + villainIn)) < 1e-9,
+                Comment(rawValue: "\(preset) from \(hero) two-handed builds \(entry.totalPot) "
+                        + "where hero has \(heroIn) and villain \(villainIn) in — the "
+                        + "difference is money nobody posted"))
+    }
+
+    /// And with a third player at the table there is dead money, but never more of it than
+    /// the blinds neither of them posted.
+    @Test("No preset invents money at a full table",
+          arguments: [PreflopPreset.limp, .open, .threeBet, .fourBet],
+          [6, 9])
+    func noPresetInventsMoneyMultiway(preset: PreflopPreset, tableSize: Int) {
         for hero in Position.seats(tableSize: tableSize) {
             let entry = PotEntry.preflop(preset, heroPosition: hero, tableSize: tableSize,
                                          smallBlind: sb, bigBlind: bb)
-            let heroIn = max(preset.heroPriorWager * bb,
-                             hero == .sb ? sb : (hero == .bb ? bb : 0))
-            let mostThatCanBeInThere = preset.villainWager * bb + heroIn + sb + bb
-            #expect(entry.totalPot <= mostThatCanBeInThere + 1e-9,
-                    Comment(rawValue: "\(preset) from \(hero) \(tableSize)-handed builds a "
-                            + "\(entry.totalPot) pot from at most \(mostThatCanBeInThere)"))
-            #expect(entry.potBeforeBet >= -1e-9)
+            let heroBlind = hero == .sb ? sb : (hero == .bb ? bb : 0)
+            let heroIn = max(preset.heroPriorWager * bb, heroBlind)
+            let villainIn = preset.villainWager * bb
+            let mostDeadMoneyThereCanBe = (sb + bb) - heroBlind
+
+            #expect(entry.totalPot <= heroIn + villainIn + mostDeadMoneyThereCanBe + 1e-9,
+                    Comment(rawValue: "\(preset) from \(hero) \(tableSize)-handed builds "
+                            + "\(entry.totalPot) from at most "
+                            + "\(heroIn + villainIn + mostDeadMoneyThereCanBe)"))
+            #expect(entry.toCall == max(0, villainIn - heroIn))
         }
     }
 }

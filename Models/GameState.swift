@@ -4,7 +4,21 @@ import PokerCore
 
 class GameState: ObservableObject {
     @Published var holeCards: [Card?] = [nil, nil]
-    @Published var communityCards: [Card?] = [nil, nil, nil, nil, nil]
+    /// Dealing a street clears what hero had in on the previous one.
+    ///
+    /// `heroWagerThisStreet` says what it says: *this* street. It was only ever written by
+    /// `reset()`, by the seat picker while preflop, and by the preflop preset buttons —
+    /// nothing cleared it when a flop appeared, so a big blind who had 1.00 posted carried
+    /// that 1.00 onto every later street. Harmless while the value only reached the
+    /// preflop sizing code, and not harmless once the result card began announcing a raise
+    /// as a total: a $3.00 flop bet displayed as "RAISE to $4.00".
+    @Published var communityCards: [Card?] = [nil, nil, nil, nil, nil] {
+        didSet {
+            let was = oldValue.compactMap { $0 }.count
+            let now = communityCards.compactMap { $0 }.count
+            if was != now { heroWagerThisStreet = 0 }
+        }
+    }
     @Published var deadCards: Set<Card> = []
     @Published var stack: Double = 20 {
         didSet {

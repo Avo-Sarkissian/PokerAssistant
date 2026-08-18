@@ -186,8 +186,14 @@ struct MainGameView: View {
         // and did not add one here, so changing stake mid-session left the pot seeded at
         // the old level — and `bigBlind` stale, which is what stack-in-blinds and SPR are
         // measured in — until the hand was reset.
-        .onChange(of: settings.smallBlind) { old, new in reseedForBlindChange(oldSmall: old, newSmall: new) }
-        .onChange(of: settings.bigBlind) { old, new in reseedForBlindChange(oldBig: old, newBig: new) }
+        //
+        // One observer over both blinds, not one each. Watching them separately gives each
+        // callback its own previous value and the other's *current* value, so both ask a
+        // half-updated question: moving from $1/$2 down to $0.50/$1 left a fresh 3.00 pot
+        // in place, because 3.00 is above both 0.50 + 2.00 and 1.00 + 1.00.
+        .onChange(of: Stake(smallBlind: settings.smallBlind, bigBlind: settings.bigBlind)) { was, now in
+            reseedForBlindChange(BlindChange(from: was, to: now))
+        }
         .sheet(item: $selectedCardIndex) { selection in
             CardSelectorView(
                 selectedCard: binding(for: selection),
@@ -275,14 +281,11 @@ struct MainGameView: View {
     }
 
     
-    /// The rule lives in `BlindChange` so it can be tested; this only wires it up.
-    private func reseedForBlindChange(oldSmall: Double? = nil, newSmall: Double? = nil,
-                                      oldBig: Double? = nil, newBig: Double? = nil) {
-        let change = BlindChange(
-            previousBlindTotal: (oldSmall ?? settings.smallBlind) + (oldBig ?? settings.bigBlind),
-            newBlindTotal: (newSmall ?? settings.smallBlind) + (newBig ?? settings.bigBlind))
+    /// The rule lives in `BlindChange`; this only wires it up, and deliberately decides
+    /// nothing of its own.
+    private func reseedForBlindChange(_ change: BlindChange) {
         // Always mirrored: stack-in-blinds and SPR are measured in it.
-        gameViewModel.gameState.bigBlind = settings.bigBlind
+        gameViewModel.gameState.bigBlind = change.updated.bigBlind
         if let pot = change.reseededPot(currentPot: gameViewModel.gameState.potSize) {
             gameViewModel.gameState.potSize = pot
             updateForPosition(selectedPosition)

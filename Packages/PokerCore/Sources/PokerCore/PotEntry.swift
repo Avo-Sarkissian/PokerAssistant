@@ -177,14 +177,19 @@ public struct PotEntry: Equatable, Sendable {
     /// - A three-bet is a re-raise over hero's open, so it comes from a player still to act
     ///   — which after an open means a blind, and the big blind more often than the small.
     ///
-    /// Where hero *is* the big blind that last assumption is wrong, since villain can only
-    /// hold the small one — but the answer is not, and there is deliberately no branch for
-    /// it. Hero's own big blind already accounts for more than the pair of blinds leaves
-    /// behind, so the dead-money clamp lands on zero whichever blind villain is assumed to
-    /// hold. A branch was written for that case first; mutation testing showed no input
-    /// could tell the two apart, so it went.
+    /// Hero holding the big blind is where that last assumption is weakest, and the code
+    /// deliberately does not branch on it. Two things are true there. Villain cannot hold
+    /// the big blind, because hero does — but substituting the small one changes nothing,
+    /// since hero's own big blind already exceeds what the pair of blinds leaves behind
+    /// and the dead-money clamp lands on zero either way. A branch was written for it
+    /// first and deleted: mutation testing showed no input could tell the two apart.
     ///
-    /// Where it is wrong it is wrong by one blind, and the pot fields stay editable.
+    /// The *assumption* is more arguable than the arithmetic. Hero opening from the big
+    /// blind means hero raised over limpers, since the big blind acts last preflop — and a
+    /// re-raise then often comes from a limper or a later seat rather than from the small
+    /// blind, in which case the small blind really is dead and this returns a pot half a
+    /// blind short. It is one blind either way, the pot fields stay editable, and the
+    /// alternative would be a second unknowable guess rather than a better one.
     public static func assumedVillainBlind(_ preset: PreflopPreset,
                                            heroPosition: Position,
                                            tableSize: Int,

@@ -130,7 +130,7 @@ public struct GameStateCopy: Sendable {
     /// players — see `playersInHand`. Raising the table size instead is what an earlier
     /// version did, and it answered a different question than the caller asked: a
     /// heads-up small blind, the seat that *holds the button*, became a six-handed small
-    /// blind, flipping `isInPosition` and swinging the bluff premium by 2.17× without a
+    /// blind, flipping `isInPosition` and swinging the fold-frequency term by 2.17× without a
     /// word.
     public let tableSize: Int
 

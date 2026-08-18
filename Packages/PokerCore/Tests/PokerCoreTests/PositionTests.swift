@@ -16,7 +16,7 @@ struct SeatTests {
 
     /// The full seat list at every table size, written out. Everything else here checks a
     /// property, and properties missed the defect that matters most: transposing LJ and HJ
-    /// at a seven-handed table — the wrong convention, and the order the bluff premium is
+    /// at a seven-handed table — the wrong convention, and the order the fold-frequency term is
     /// ranked by — left every test in the suite green. Golden arrays are the only thing
     /// that pins the middle seats.
     @Test("The seats at each table size are exactly these", arguments: [
@@ -158,10 +158,10 @@ struct PostflopPositionTests {
         #expect(order.last == .btn)
     }
 
-    /// The bluff premium is the two values the three-seat version used, and it takes the
+    /// The fold-frequency term is the two values the three-seat version used, and it takes the
     /// *fact* rather than a seat, because the seat cannot settle it — see
     /// `GameStateCopy.heroActsLast`.
-    @Test("The bluff premium is 1.3 acting last and 0.6 otherwise")
+    @Test("The fold-frequency term is 1.3 acting last and 0.6 otherwise")
     func bluffPremiumIsTwoValued() {
         #expect(abs(Position.foldFrequencyMultiplier(actingLast: true) - 1.3) < 1e-9)
         #expect(abs(Position.foldFrequencyMultiplier(actingLast: false) - 0.6) < 1e-9)
@@ -194,7 +194,7 @@ struct PostflopPositionTests {
         #expect(!Position.btn.isInPosition(tableSize: 2),
                 "a two-handed table with no button reported one as last to act")
         #expect(!Position.btn.isInPosition(tableSize: 2),
-                "an unseated button would default to the in-position bluff premium")
+                "an unseated button would default to the in-position fold-frequency term")
 
         // Three-handed has no cutoff either, and reading one must not make it the button.
         #expect(!Position.co.isInPosition(tableSize: 3))

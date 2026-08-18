@@ -187,6 +187,29 @@ struct FoldEquityTests {
         }
     }
 
+    /// Facing a bet larger than the stack behind it. There is no raise to make, so there
+    /// must be no raise to price — and pricing one anyway is not invisible: `evRaise`
+    /// reaches the alternatives list on the result card.
+    ///
+    /// This is what the `chipsBehind > 0` half of the raise-legality guard is for. The
+    /// action is unchanged without it, because a zero-size raise never becomes a
+    /// candidate, which is why an earlier comment here called the two halves of that guard
+    /// interchangeable. They are not: dropping this one prices the impossible raise at
+    /// 32.0 against a call worth 8.0.
+    @Test("A hero who cannot cover the bet is not offered a raise")
+    func heroWhoCannotCoverIsNotOfferedARaise() {
+        let solver = ExploitativeSolver()
+        let facingMoreThanTheStack = solver.solve(
+            gameState: spot(pot: 60, toCall: 50, stack: 10, villainStack: 100, playersInHand: 2),
+            myEquity: 0.60, settings: makeSettings())
+
+        #expect(facingMoreThanTheStack.raiseAmount == 0)
+        #expect(facingMoreThanTheStack.evRaise == facingMoreThanTheStack.evCall,
+                Comment(rawValue: "a raise hero cannot make priced at "
+                        + "\(facingMoreThanTheStack.evRaise) against a call worth "
+                        + "\(facingMoreThanTheStack.evCall)"))
+    }
+
     /// Hero's equity is exactly the pot odds, so calling and folding are worth precisely
     /// the same and the tie rule is the only thing left to decide it.
     ///

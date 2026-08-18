@@ -246,8 +246,8 @@ struct FoldEquityIdentityTests {
         #expect(smallestBet < 0.4 && largestBet >= 0.6,
                 Comment(rawValue: "bet sizes spanned only "
                         + "\(String(format: "%.2f", smallestBet))–"
-                        + "\(String(format: "%.2f", largestBet)) of the pot, which does not "
-                        + "reach three of `foldEquityForRange`'s five bet-size tiers"))
+                        + "\(String(format: "%.2f", largestBet)) of the pot, which is too "
+                        + "narrow to say anything about how fold equity tracks bet size"))
     }
 
     // MARK: - Measurement
@@ -351,6 +351,77 @@ struct FoldEquityIdentityTests {
         }
     }
 
+    /// Whether a pure bluff can ever be profitable is now a twelve-entry table, and this
+    /// is it.
+    ///
+    /// It follows from the two changes above rather than from anything anyone chose. Once
+    /// fold equity is α(b) · k(range) · m(position), the EV of a bet with no showdown
+    /// value into a pot of P is
+    ///
+    ///     EV = f·(P + R) − R = R · (k·m − 1)
+    ///
+    /// — exactly linear in the bet, so the *sign* does not depend on the size, the pot or
+    /// the stack at all. A bluff is either always profitable against a given opponent from
+    /// a given seat, or never.
+    ///
+    /// | range       |  in position |  out of position |
+    /// |-------------|--------------|------------------|
+    /// | `.veryTight`| 0.758        | 0.350            |
+    /// | `.tight`    | 1.062        | 0.490            |
+    /// | `.standard` | 1.365        | 0.630            |
+    /// | `.wide`     | 1.668        | 0.770            |
+    /// | `.veryWide` | 1.972        | 0.910            |
+    /// | `.random`   | 2.123        | 0.980            |
+    ///
+    /// **Every out-of-position entry is below one**, including `.random` at 0.980 — the
+    /// range the model describes as folding anything it cannot use. So the solver will
+    /// never bet a hand with no showdown value out of position, against anyone, at any
+    /// size. Under the step function it would, because that function's floor kept small
+    /// bets cheap relative to α.
+    ///
+    /// This test asserts the table rather than approving of it. Whether 1.3 and 0.6 are
+    /// the right position multiples is unmeasured — they are the last hand-authored
+    /// constants in the fold-equity path — and the point of pinning the product is that
+    /// their most consequential effect is now visible in the suite instead of emerging
+    /// from three multiplications in two files.
+    @Test("Whether a pure bluff can profit is a property of range and seat alone")
+    func bluffabilityIsATwelveEntryTable() {
+        for range in Self.allRanges {
+            for actsLast in [true, false] {
+                let multiple = ExploitativeSolver.creditedFoldEquity(
+                    range: range, betSizeRelativeToPot: 0.75, actsLast: actsLast) / (0.75 / 1.75)
+
+                var signs = Set<Bool>()
+                for step in 5...200 {
+                    let b = Double(step) / 100.0
+                    let f = ExploitativeSolver.creditedFoldEquity(
+                        range: range, betSizeRelativeToPot: b, actsLast: actsLast)
+                    signs.insert(f > b / (1 + b))
+                }
+                #expect(signs.count == 1,
+                        Comment(rawValue: "\(range) \(actsLast ? "IP" : "OOP") is bluffable at "
+                                + "some sizes and not others, which the α anchor is supposed "
+                                + "to have ruled out"))
+                #expect(signs.first == (multiple > 1),
+                        Comment(rawValue: "\(range) \(actsLast ? "IP" : "OOP") folds "
+                                + "\(String(format: "%.3f", multiple))× a balanced defender "
+                                + "but bluffing it is \(signs.first == true ? "" : "un")profitable"))
+            }
+        }
+
+        // The finding this table exists to keep visible.
+        for range in Self.allRanges {
+            let outOfPosition = ExploitativeSolver.creditedFoldEquity(
+                range: range, betSizeRelativeToPot: 0.75, actsLast: false) / (0.75 / 1.75)
+            #expect(outOfPosition < 1.0,
+                    Comment(rawValue: "\(range) out of position now folds "
+                            + "\(String(format: "%.3f", outOfPosition))× a balanced defender — "
+                            + "if this is above 1 the position multiples have been "
+                            + "recalibrated, which is exactly the change this test is here "
+                            + "to make deliberate"))
+        }
+    }
+
     /// Bluff profitability must not flip back and forth as the bet grows.
     ///
     /// This shipped `.disabled` alongside the α identity, as an executable statement of a
@@ -362,9 +433,11 @@ struct FoldEquityIdentityTests {
     /// $100 pot means an $82 bluff priced as losing where an $85 bluff won, against the
     /// same opponent holding the same cards.
     ///
-    /// Enabling it is what drove the fix. One sign change is still allowed: the 0.85
-    /// ceiling stops the credited rate rising with α forever, so a large enough bet
-    /// eventually outruns it.
+    /// Enabling it is what drove the fix. Zero sign changes, not "at most one": since fold
+    /// equity became α times a constant, profitability is a property of the range alone
+    /// over this whole sweep. The 0.85 ceiling does eventually let α catch up — around a
+    /// 5.7-pot bet for `.random` — but that is far outside anything the solver can size to,
+    /// and allowing a flip the sweep cannot reach would only be slack.
     @Test("Bluff profitability does not flip back and forth as the bet grows",
           )
     func bluffProfitabilityIsMonotoneInBetSize() {
@@ -380,7 +453,7 @@ struct FoldEquityIdentityTests {
                 }
                 previous = profitable
             }
-            #expect(flips.count <= 1,
+            #expect(flips.isEmpty,
                     Comment(rawValue: "\(range) changes sign \(flips.count) times: \(flips.joined(separator: ", "))"))
         }
     }

@@ -173,7 +173,14 @@ class EquityCalculator {
             // Pass the caller's range through untouched. Substituting `.standard` for
             // `.random` answered a different question than the one asked: with no bet
             // in front of them, the user is asking about a random hand, not a raiser.
-            if let cached = PreflopEquityTable.shared.cachedEquity(
+            //
+            // Dead cards are deliberately not part of this. The cache key is
+            // (hand, opponents, range) and a stored value is permanent, so an equity
+            // computed with cards removed from the deck must never be filed under a key
+            // that does not mention them — mark the other two aces dead once with AKo and
+            // every AKo calculation afterwards, in every future session, returns that
+            // number. The lookup is skipped for the same reason in reverse.
+            if deadCards.isEmpty, let cached = PreflopEquityTable.shared.cachedEquity(
                 hand: hand,
                 opponents: opponents,
                 range: opponentRange
@@ -196,16 +203,21 @@ class EquityCalculator {
         // ignores the range. Correct and slower beats fast and wrong.
         let useRangeFiltering = isPreflop && opponentRange != .random
 
-        // A cached preflop equity is permanent until the schema version changes, so it is
-        // never computed at less than the floor the table itself used to apply. A deeper
-        // setting still wins; a shallower one cannot poison the cache. Note the threshold:
-        // anything at or above 0.0022 stops `MonteCarloEngine` after its first 50,000-hand
-        // batch, and the app's own default is 0.005.
-        let sampleCount = isPreflop ? max(iterations, 200_000) : iterations
-        let precision = isPreflop ? min(confidenceThreshold, 0.001) : confidenceThreshold
+        // A cached preflop equity is permanent until the schema version changes, so the
+        // run that produces one is pinned rather than merely floored.
+        //
+        // `confidenceThreshold` is zero preflop, not "small". Early termination is checked
+        // against `p(1−p)`, so a *threshold* stops the run at whatever sample size happens
+        // to satisfy it — at 0.001 that is the very first 50,000-hand batch for any equity
+        // below about 5% or above 95%, which 72o against eight opponents reaches. Zero
+        // means the loop runs the count it was given and the cached number is the number
+        // that was asked for. The cap keeps that affordable: the depth setting goes up to
+        // 100M, and nobody needs 100M samples to fill a preflop cell.
+        let sampleCount = isPreflop ? min(max(iterations, 200_000), 2_000_000) : iterations
+        let precision = isPreflop ? 0.0 : confidenceThreshold
 
         func remember(_ equity: Double) -> Double {
-            if isPreflop {
+            if isPreflop, deadCards.isEmpty {
                 PreflopEquityTable.shared.store(hand: hand, opponents: opponents,
                                                 range: opponentRange, equity: equity)
             }

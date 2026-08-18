@@ -7,7 +7,7 @@ import PokerTestSupport
 /// priced as buttons. This suite is the guard on the fix.
 ///
 /// Note what it does **not** claim. An earlier version of this file asserted that all nine
-/// seats price a bluff differently, which held only because the bluff premium was then a
+/// seats price a bluff differently, which held only because the fold-frequency term was then a
 /// ramp over the table size — and that ramp was wrong: it priced one identical spot across
 /// a 40% range on nothing but how many seats had already folded. Position reaches the
 /// solver through two binary facts, so two groups is all there is: whether hero acts last
@@ -195,7 +195,7 @@ struct SuppliedPositionTests {
     }
 
     /// And the flag has to actually move the numbers, in the documented direction: acting
-    /// last bets smaller (0.9x rather than 1.1x) and earns the higher bluff premium.
+    /// last bets smaller (0.9x rather than 1.1x) and earns the higher fold-frequency term.
     @Test("Saying hero acts last changes the size and the price")
     func theFlagMovesTheAnswer() {
         let last = advice(.co, actsLast: true)

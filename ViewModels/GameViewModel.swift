@@ -116,6 +116,12 @@ class GameViewModel: ObservableObject {
             // changes both the postflop size and the fold-equity premium.
             gameState.actsLastOverride.map(String.init(describing:)) ?? "seat",
             gameState.opponentStyle.rawValue,
+            // …and whether that style is being listened to. It became an input to the
+            // calculation when `GameStateCopy` started honouring the toggle, and without
+            // it here the fingerprint is byte-identical either side of switching Track
+            // Opponents off: Calculate stays inert and the result computed against the
+            // tagged range stays on screen with no way to refresh it.
+            "\(settings?.trackOpponents ?? false)",
             "\(settings?.smallBlind ?? 0)",
             "\(settings?.bigBlind ?? 0)",
             settings?.gameMode.rawValue ?? "",

@@ -20,7 +20,6 @@ public final class PreflopEquityTable {
 
     public static let shared = PreflopEquityTable()
 
-    private let engine = MonteCarloEngine()
     private let defaults = UserDefaults.standard
 
     /// Bump this whenever the evaluator, the sampler, or the range model changes.
@@ -47,8 +46,8 @@ public final class PreflopEquityTable {
 
     // MARK: – Public API
 
-    /// Returns a cached preflop equity, or nil if not yet computed.
-    /// Call `computeAndCache` asynchronously to populate the cache.
+    /// Returns a cached preflop equity, or nil if not yet computed. `store` is how one
+    /// gets there; nothing here computes.
     public func cachedEquity(hand: Hand, opponents: Int, range: OpponentRange.RangeType) -> Double? {
         guard let key = cacheKey(hand: hand, opponents: opponents, range: range) else { return nil }
         lock.lock(); defer { lock.unlock() }

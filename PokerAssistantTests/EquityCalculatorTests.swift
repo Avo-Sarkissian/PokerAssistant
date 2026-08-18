@@ -166,6 +166,47 @@ struct PreflopRoutingTests {
                         + "\(String(describing: cached))"))
     }
 
+    /// A cached preflop equity is permanent and its key is (hand, opponents, range) —
+    /// dead cards are not in it. So an equity computed with cards struck out of the deck
+    /// must never be filed under that key, and the cache must not answer a question it was
+    /// not asked. Dead Cards is a toolbar button available preflop, so this is one tap
+    /// away: mark the other two aces dead once holding A-K, and without this every A-K
+    /// calculation afterwards — this session and every future one — returns the inflated
+    /// number.
+    @Test("A calculation with dead cards neither reads nor writes the preflop cache")
+    func deadCardsStayOutOfTheCache() async {
+        let snapshot = PreflopCacheSnapshot()
+        defer { snapshot.restore() }
+
+        let hand = Hand(holeCards: cards("Ad Kc"), communityCards: [])
+        let dead: Set<Card> = [card("As"), card("Ah"), card("Ks"), card("Kh")]
+        let calculator = EquityCalculator()
+
+        let withDeadCards = await calculator.calculateDeep(
+            hand: hand, opponents: 1, deadCards: dead,
+            iterations: 200_000, confidenceThreshold: 0.005, opponentRange: .random)
+        #expect(withDeadCards > 0.01)
+
+        #expect(PreflopEquityTable.shared.cachedEquity(hand: hand, opponents: 1, range: .random) == nil,
+                Comment(rawValue: "an equity computed with four cards removed from the "
+                        + "deck was filed under a key that says nothing about them"))
+
+        // …and in the other direction: once a clean value is cached, a dead-card request
+        // must not be answered with it. Removing both remaining aces and kings from
+        // villain's possible holdings moves the number well beyond sampling noise, so an
+        // exact match means the cache was consulted.
+        let clean = await calculator.calculateDeep(
+            hand: hand, opponents: 1, deadCards: [],
+            iterations: 200_000, confidenceThreshold: 0.005, opponentRange: .random)
+        let againWithDeadCards = await calculator.calculateDeep(
+            hand: hand, opponents: 1, deadCards: dead,
+            iterations: 200_000, confidenceThreshold: 0.005, opponentRange: .random)
+
+        #expect(againWithDeadCards != clean,
+                Comment(rawValue: "the cached clean equity \(clean) was returned for a "
+                        + "dead-card question"))
+    }
+
     /// The routing fix this test exists for: the GPU kernel has no range filter, so a
     /// range-conditioned request must not reach it. That condition used to also require a
     /// single opponent, which was invisible only because the table absorbed every multiway

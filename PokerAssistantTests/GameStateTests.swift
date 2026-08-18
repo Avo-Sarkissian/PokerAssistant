@@ -743,3 +743,84 @@ struct ResultSnapshotTests {
         #expect(abs(result.requiredEquity - 0.25) < 1e-9)
     }
 }
+
+// MARK: - What counts as a different question
+
+/// `getCurrentStateString` is the fingerprint that decides whether Calculate does anything.
+/// Anything that changes the answer has to be in it, and the review of the tracking fix
+/// found that the fix itself had added an input without adding it here.
+@Suite("The recalculation fingerprint", .serialized)
+@MainActor
+struct RecalculationFingerprintTests {
+
+    @Test("Turning opponent tracking off is a different question")
+    func trackingToggleChangesTheFingerprint() {
+        let snapshot = DefaultsSnapshot()
+        defer { snapshot.restore() }
+
+        let settings = Settings()
+        let viewModel = GameViewModel()
+        viewModel.settings = settings
+        viewModel.gameState.opponentStyle = .loose
+
+        settings.trackOpponents = true
+        let tracked = viewModel.getCurrentStateString()
+        settings.trackOpponents = false
+        let untracked = viewModel.getCurrentStateString()
+
+        #expect(tracked != untracked,
+                Comment(rawValue: "the style still reaches the solver, so switching it off "
+                        + "has to invalidate the cached result — otherwise Calculate is "
+                        + "inert and the old answer stays on screen"))
+    }
+}
+
+// MARK: - Streets
+
+/// `heroWagerThisStreet` means this street. Nothing cleared it when a flop arrived, so a
+/// posted blind was carried forward — which the result card then announced, displaying a
+/// $3.00 flop bet as "RAISE to $4.00".
+@Suite("Street changes")
+@MainActor
+struct StreetChangeTests {
+
+    @Test("Dealing a flop clears what hero had in preflop")
+    func dealingAFlopClearsTheStreetWager() {
+        let state = GameState()
+        state.heroWagerThisStreet = 1.00
+
+        state.communityCards = [card("Ks"), card("7h"), card("2d"), nil, nil]
+
+        #expect(state.heroWagerThisStreet == 0,
+                Comment(rawValue: "carried \(state.heroWagerThisStreet) onto the flop"))
+    }
+
+    @Test("Every later street clears it too")
+    func everyStreetClearsTheWager() {
+        let state = GameState()
+        state.communityCards = [card("Ks"), card("7h"), card("2d"), nil, nil]
+
+        state.heroWagerThisStreet = 8.00
+        state.communityCards = [card("Ks"), card("7h"), card("2d"), card("4c"), nil]
+        #expect(state.heroWagerThisStreet == 0, "the turn kept the flop's bet")
+
+        state.heroWagerThisStreet = 12.00
+        state.communityCards = [card("Ks"), card("7h"), card("2d"), card("4c"), card("9s")]
+        #expect(state.heroWagerThisStreet == 0, "the river kept the turn's bet")
+    }
+
+    /// Changing a card without changing the street is not a new street, and must not throw
+    /// away what hero has already put in on it.
+    @Test("Correcting a card on the same street keeps the wager")
+    func correctingACardKeepsTheWager() {
+        let state = GameState()
+        state.communityCards = [card("Ks"), card("7h"), card("2d"), nil, nil]
+        state.heroWagerThisStreet = 8.00
+
+        state.communityCards = [card("Kd"), card("7h"), card("2d"), nil, nil]
+
+        #expect(state.heroWagerThisStreet == 8.00,
+                Comment(rawValue: "a mistyped flop card discarded the street's bet: "
+                        + "\(state.heroWagerThisStreet)"))
+    }
+}

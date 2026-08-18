@@ -72,8 +72,8 @@ struct SemiBluffTests {
     /// The other half of the claim: that the seat's bluff treatment never reaches a
     /// decision the user sees. Bet the same bluff from the button and from the small
     /// blind — the two seats differ in both the premium (1.3 vs 0.6) and the sizing
-    /// (0.9 vs 1.1), so this pins that seat matters to a bluff, not that the premium
-    /// alone does. Isolating the premium is not possible through the public API, and
+    /// (0.9 vs 1.1), so this pins that seat matters to a bluff, not that the fold-frequency term
+    /// alone does. Isolating that term is not possible through the public API, and
     /// inventing a seam for it would test the seam rather than the solver.
     @Test("A bluff prices differently from different seats")
     func bluffPremiumIsLoadBearing() {
@@ -101,6 +101,6 @@ struct SemiBluffTests {
             myEquity: 0.30, settings: settings)
 
         #expect(outOfPosition.evRaise < asBluff.evRaise,
-                "the seat's bluff premium changed nothing: BTN \(asBluff.evRaise) vs SB \(outOfPosition.evRaise)")
+                "the seat changed nothing: BTN \(asBluff.evRaise) vs SB \(outOfPosition.evRaise)")
     }
 }
