@@ -30,8 +30,8 @@ green run.
 
 An exhaustive audit produced 217 verified findings, consolidated into a ranked
 95-item backlog. **33 items are shipped, 1 withdrawn.** The test suite went from a
-single empty stub to **190 cases across 43 suites, all passing** (150 in PokerCore,
-40 in the app target), plus 6 gated external anchors.
+single empty stub to **224 cases across 52 suites, all passing** (173 in PokerCore,
+51 in the app target), plus 6 gated external anchors CI runs on every push.
 
 Batch D is done: #24, #28 and #29 are closed. Item 28 was closed as **stale** — the
 fold-below-pot-odds guard it describes went away with `bd2bedf`, verified by splicing the
@@ -74,171 +74,94 @@ Shipped, by commit:
 | `8fd1657` | External anchor 2: the solver's bluff arithmetic against α = b/(1+b) |
 | `46bd073` | External anchor 3: the aces ladder and six classic matchups; the shared-board showdown suite |
 | `af66471` | Adversarial review response and an 11-mutation pass; CI runs the anchors |
+| `12009aa` | The four cheap review findings: a vacuous test made real, the tie rule tested, the guards documented honestly, the anchors gate written once |
+| `3bbf81c` | Fold equity anchored to α, so bluff profitability stops flipping with bet size |
+| `f765256` | Villain stops seeing hero's cards; the preflop cache stops swallowing the depth setting, and stops routing ranged work to a range-blind kernel |
+| `f065282` | The result card stops narrating a table that has moved on; "RAISE to" tells the truth; the tracking toggle is honoured; the blinds get an `onChange` |
+| `1c99d27` | Villain's own blind is not dead money — the heads-up pot was 4.0 where the truth is 3.0 |
+| `fb13aec` | What would unblock tier 3, and why the obvious construction is not enough |
+| `d50d2eb` | Adversarial review response: dead cards poisoning the preflop cache, a half-updated blind observer, a street wager carried forward, and a comment that was false |
 
 Equity is now within **0.20 percentage points** of published values where the exact
 path runs, down from being wrong by up to 36.
 
 ## Do this next, in order
 
-**Batch A and Batch D are done.** Backlog items 24, 28, 29, 33, 34, 35 are closed;
-21 belongs with Batch E.
+Backlog items 23, 24, 25, 28, 29 are now closed as well as 33, 34, 35; 21, 31 and 32 are
+**blocked**, and the reason is in the code. The republished backlog artifact is accurate as
+of `1c99d27`:
 
-**1. The external validation harness — done.** All three anchors are in, and CI runs
-them. What each one found:
+- Audit report: https://claude.ai/code/artifact/0b6a3220-8588-499e-beb4-655af33f4a71
+- Ranked backlog: https://claude.ai/code/artifact/c3758e78-e7b6-46ec-8b1e-6ee4b26937bd
 
-- **The C(52,7) category census** (`./scripts/test anchors`, ~21s in release). All nine
-  published counts match **exactly**. Four of the nine are now derived in the test from
-  the combinatorics rather than transcribed, so a mistyped reference cannot masquerade as
-  an evaluator bug. The fast loop keeps a seeded 300,000-hand sampled version — useful,
-  but weak where the category is rare: five sigma is 1% of the one-pair count and 52% of
-  the straight-flush count, so anything touching under ~0.05% of hands passes it. The
-  exhaustive pass is the proof, which is why it is a CI step.
-- **The α = b/(1+b) identity.** Asserted end to end through `solve()`: a zero-equity
-  bluff's EV must equal fⁿ·P − (1−fⁿ)·C·r and must be positive exactly when fⁿ clears α,
-  and the recommendation must follow its own arithmetic. It holds over 900 spots. ICM
-  pressure falls out of it cleanly — a risk premium of r raises the required fold
-  frequency exactly as if the bet were r times larger.
-- **Published equity anchors.** The aces ladder reproduces all eight published rungs
-  (85.20 · 73.36 · 63.87 · 55.86 · 49.20 · 43.58 · 38.79 · 34.63) and, more usefully,
-  the *mean signed error* across the eight is pinned at 0.002 — a per-rung tolerance has
-  to absorb sampling noise and is 80× looser than the published table is accurate. Six
-  classic matchups enumerated over all C(48,5) boards, hand class against hand class, all
-  inside half a point.
+**1. The strategic constants that are left.** The harness exists now, and it has already
+turned two hand-authored guesses into something anchored. What it has not touched:
 
-**What the harness found, all deferred deliberately:**
+- **`foldFrequencyMultiplier`: 1.3 in position, 0.6 out.** These are the last unmeasured
+  numbers in the fold-equity path and they are now doing more work than anyone intended.
+  Because fold equity is `α(b) · k(range) · m(position)`, a pure bluff's EV is exactly
+  `R·(k·m − 1)` — linear in the bet, so whether bluffing is profitable depends on nothing
+  but range and seat. Every out-of-position entry in that twelve-cell table is below one,
+  `.random` included at 0.980, so **the solver will never bet a hand with no showdown value
+  out of position, against anyone, at any size.** Pinned by
+  `bluffabilityIsATwelveEntryTable`, which asserts the table without endorsing it. If one
+  thing gets measured next, make it this.
+- **The `HandStrength` equity cutoffs** (backlog #32's neighbour) and the 169-hand chart's
+  ordering. Both still hand-calibrated.
+- **Preflop tier boundaries are absolute in big blinds**, so a 20bb shove reads as a 4-bet.
+  The obvious repairs make it worse — as a fraction of stack the same shove is 100% and
+  therefore tighter still. What widens a short stack's range is that the bet is an
+  *all-in*; modelling that needs a shove-range table by depth, which is five more invented
+  constants with no theorem behind them. Written out at `OpponentRange.preflopRange`.
 
-- **Bluff profitability is not monotone in bet size.** `foldEquityForRange` multiplies its
-  base rate by a *step* function of bet size while α rises smoothly, so the sign flips
-  back and forth: `.standard` changes four times over a 0.10–3.00 pot sweep — profitable
-  to 0.82 pot, unprofitable from 0.82, profitable again from 0.85, unprofitable from 0.99,
-  profitable at 1.10, unprofitable from 1.11. In a $100 pot an $82 bluff is priced as
-  losing and an $85 bluff as winning, against the same opponent with the same cards, and
-  the solver's own sizing reaches that band routinely (a medium hand out of position on a
-  wet board at SPR under 4 sizes to 0.87 pot). **There is a test for this, and it is
-  `.disabled`** — `bluffProfitabilityIsMonotoneInBetSize` in `FoldEquityIdentityTests`.
-  The fix is written out in its note and introduces no constant that is not already
-  there: `f(range, b) = min(α(b)·k(range), 0.85)` with
-  `k(range) = foldEquityForRange(range, 0.75) / α(0.75)`. That reproduces today's numbers
-  exactly at the model's default size, makes the multiple constant in bet size, and makes
-  the test pass. It also moves every raise EV in the app, which is why it was not smuggled
-  into a test commit. **Swift Testing has no XFAIL, so nobody will be told when this
-  starts passing — check it deliberately when you take it on.**
-- **The α-multiple is backwards.** The model credits 2.80× α at a quarter-pot bet and
-  0.50× at 1.75 pot; the multiple *falls* as the bet grows. Real opponents over-fold to
-  big bets and call small ones too wide, so an exploitative model should do the opposite.
-  Bounded, not pinned: `creditedFoldEquityStaysNearTheBalancedBaseline` allows a factor of
-  three either side, and today's worst case is 2.80, so there is very little slack left.
-- **`.veryTight` clears α only below a quarter-pot bet**, which the solver reaches only
-  when hero is nearly all in. At every size it normally chooses, bluffing a range read as
-  tight is unprofitable by construction rather than by measurement.
-- **The 169-hand order against published opening-range widths could not be done**, because
-  there is nothing left to compare: `openingRangePercentile` and the rest of the
-  positional opening ranges went with the old three-case `Position` (see `bd2bedf`), and
-  the six `RangeType` widths are already checked against their own claimed percentiles in
-  `RangeWidthTests`. Re-basing the 169-hand order on all-in equity is still open and is
-  really backlog #32's neighbour.
+**2. Batch E is blocked, and the specification is written down.** Items 21, 31 and 32 all
+sit downstream of the postflop range gate in `EquityCalculator`, and the note there says
+what would unblock it: α, `FastHandEvaluator` and the preflop charts compose into a
+river-only continuation model with no new constants — but that models a *defending* range,
+and the router needs a *betting* range, which is polarised. Filtering to the top 1 − α
+deletes villain's bluffs and biases hero's equity by an amount nothing here can measure.
+Item 31 is separately downgraded to a performance item: routing now keeps range-conditioned
+work off the range-blind GPU kernel, so the kernel is no longer answering questions it
+cannot answer.
 
-**The mutation pass, for calibration of how much the suite is worth.** Eleven single-line
-mutations of production code; five were caught by the new tests, six survived and needed a
-new test each. Worth reading before trusting a green run:
+**3. Calculation Depth is largely decorative**, found while making the preflop fall-through
+live. The GPU path caps at 2M iterations, so Accurate, Deep and Maximum are identical
+there; the CPU path stops at its first 50,000-hand batch for any threshold at or above
+0.0022, which is three of the four settings. The UI advertises 1M to 100M simulations. This
+is a UI and performance decision as much as a correctness one, which is why it was left.
 
-- The category census is *definitionally* blind to ordering — it bins on
-  `evaluate(...)/1_000_000` and throws away every bit below. Two tie-break multipliers
-  were one decimal place too small to collide and nothing noticed; the collisions are real
-  pots (board 9♠9♥2♦4♣2♣ chops nines-and-threes against nines-and-twos).
-- Published *equity* anchors are blind to anything that leaves the mean unbiased. Freezing
-  the batch seed, or inverting the convergence check, makes a 150,000-sample run return
-  the 50,000-sample answer exactly — the caller loses two thirds of the precision they
-  asked for and every anchor still passes. `A longer run is a different run` is what
-  catches that.
-- Drawing each opponent's first card from the whole deck instead of the undealt part
-  reaches back into a seat that has already passed the range filter and swaps one of its
-  cards. No duplicate, no missing player, and it survived all 150 tests. Only a comparison
-  against exact enumeration with *two* opponents *and* a range filter sees it — 0.0083
-  above the enumerator against 0.0006 clean.
+**4. Still open from the Batch D review:** the made-hand sizing ladder is a tell (the four
+grades descend in lockstep with strength; `.bluff` sizing above `.weak` is *not* a defect
+and `PostflopSizingTests` now says so), and `assumedVillainBlind` guesses at three-handed
+tables where a partial constraint is actually derivable.
 
-**2. Batch E — the range engine.** Items 31, 32, and re-enabling 30's routing behind a
-board-conditioned continuation model. See the trap below before starting. Note #32 got
-more urgent, not less: the `HandStrength` equity cutoffs are now applied to *postflop*
-equity only, and postflop equity is deliberately vs-random, so the cutoffs and their
-input finally agree — but they are still the values calibrated by hand.
-
-**3. Found by the harness review, deferred, and cheap:**
-
-- **`noFoldEquityVersusAnAllInVillain` is vacuous.** In the spot it builds, `canRaise` is
-  false, so `evRaise = evCall` by assignment in `solve()` and the assertion holds however
-  fold equity is computed. It was written to guard the "a player with nothing behind
-  cannot fold" rule and does not reach it.
-- **Five guards in `calculateRaiseEV` are unreachable**, so no test can cover them and
-  nothing will notice if they rot: `min(toCall + raiseAmount, effectiveStack)` and
-  `min(raiseAmount, max(0, villainStack - toCall))` can never bind, because
-  `calculateOptimalRaiseSize` already clamps to `chipsBehind`; `villainHasChipsBehind` is
-  always true, because `canRaise` requires it before the call is made; `max(f, 0)` cannot
-  bind, because the smallest product is 0.25 × 0.80 × 0.6; and `max(1, opponents)` is
-  inert, because `GameStateCopy.opponentCount` is already `max(1, playersInHand - 1)`.
-  Either delete them or leave a comment saying they are belt-and-braces — as written they
-  read as live cases.
-- **`makeDecision`'s documented tie rule is untested.** "Ties resolve toward the least
-  aggressive action, which keeps variance down" — replacing `> best.ev + 1e-9` with
-  `>= best.ev` passes every test in both targets. The identity sweep deliberately skips
-  the knife edge, which is the only place the rule bites.
-- **The `POKER_EXTERNAL_ANCHORS` gate string is written out twice**, in
-  `CategoryCensusTests` and `PublishedEquityTests`. A typo in one silently retires that
-  suite, and a skipped suite is a green run.
-
-**4. Found by the Batch D review, deliberately deferred, all with numbers:**
-
-- ~~A cutoff whose button folded is in position, and the app says otherwise.~~ **Fixed in
-  `0043d8a`** by asking rather than guessing: `GameStateCopy.heroActsLast` is a supplied
-  fact, seeded from the seat, overridable from a row under the seat picker. The solver now
-  takes position as two facts — posted a blind, acts last — and re-derives neither.
-- **`PotEntry.preflop` double-counts villain's posted blind whenever villain is a blind.**
-  Heads-up "Open / SB" — the button facing a big-blind raise, *the* heads-up spot —
-  computes a 4.0 pot where the truth is 3.0, understating required equity by 6.7 points
-  (33.3% shown against 40.0% true). Also fires 6-handed when villain is the small blind.
-  Pre-existing; needs villain's seat.
-- **`bluffFrequencyMultiplier` is dimensionally suspect.** Villain cannot see hero's
-  cards, so hero's *hand* should not move villain's fold rate at all; villain can see
-  hero's *seat*, which argues a late-position bettor is called looser and the sign is
-  backwards. It is the only route position takes into raise EV, so removing it would
-  collapse the nine seats to two groups. Wants the harness first.
-- **`.bluff` sizes larger than `.weak` postflop** (0.40 vs 0.33), so the grade ladder is
-  not monotone in sizing. Pre-existing.
-- **`EquityCalculator`'s preflop cache-miss fall-through is dead.** The comment claims a
-  miss continues to a higher-accuracy GPU/CPU run, but `PreflopEquityTable.equity`
-  returns the value it just computed, so the deeper `CalculationDepth` settings never
-  apply preflop.
-- **The blind level has no `onChange`.** #24 added one for `numberOfPlayers` because
-  Settings is a sheet and `onAppear` never fires again; `smallBlind`/`bigBlind` are
-  mirrored the same way and did not get one. Change the blinds mid-session and the pot
-  stays seeded at the old level until Reset.
-- **Disabling "Track Opponents" leaves `opponentStyle` live.** The selector is hidden but
-  the stored style still short-circuits bet-size range inference, so villain stays a
-  `.wide` range forever with no control on screen.
-- **`ResultView` mixes live state into a snapshot card.** The "In Position" badge and the
-  "Need X% to call" check read current game state while everything else comes from the
-  `CalculationResult` captured at solve time, so tapping a seat flips the badge above a
-  reasoning string that still says the opposite.
-- **`ResultView`'s "RAISE to" figure omits hero's posted blind**, so a small-blind open
-  sized to 3.0bb displays as "RAISE to $2.50" — the same number shown for a button open,
-  hiding the out-of-position premium the sizing deliberately adds.
-- **Preflop tier boundaries are absolute in big blinds**, so a 20bb shove reads as a
-  4-bet range. Right for 100bb, wrong for 25bb; the boundaries probably want to scale
-  with the effective stack.
+**5. Nothing is pushed.** The branch is a long way ahead of `main` and has been for several
+sessions, on one machine.
 
 ## Traps that already cost time
 
 - **`xcodebuild -scheme PokerAssistant test` no longer means "the test suite."** It runs
-  40 of 190. Use `./scripts/test`. Nothing fails or warns when you get this wrong — the
+  51 of 224. Use `./scripts/test`. Nothing fails or warns when you get this wrong — the
   Xcode test action just reports the app-target tests as passing. See the note at the top.
 - **A skipped test is a green run.** The external anchors are gated behind
   `POKER_EXTERNAL_ANCHORS`, and for three commits CI ran without it, so the strongest
   check in the repository was silently absent from every automated run while the output
   said `Test run with 5 tests in 2 suites passed`. Swift Testing prints skips with a `➜`
   and moves on. If you gate anything, add the CI step in the same commit.
-- **Swift Testing has no XFAIL.** `bluffProfitabilityIsMonotoneInBetSize` is `.disabled`
-  because it documents a real defect. Nothing will tell you when the defect is fixed and
-  the test could be re-enabled — you have to go and look.
+- **Swift Testing has no XFAIL.** `bluffProfitabilityIsMonotoneInBetSize` shipped
+  `.disabled` as an executable statement of a defect, and nothing announced when the defect
+  was fixed — it had to be gone back to on purpose. It is enabled and passing now.
+- **Moving half a rule somewhere testable is worse than not moving it.** `BlindChange` was
+  extracted so the re-seed rule could be tested, and the half left in the view — which
+  blind totals to compare — was the half that was wrong. Four green tests, and the bug they
+  describe was shipping. If a value type owns a rule, give it the whole rule.
+- **A permanent cache must key everything that changed the answer.** `PreflopEquityTable`
+  is keyed on (hand, opponents, range) and lives in `UserDefaults` forever. Feeding it an
+  equity computed with dead cards poisons that hand for every future session. The same
+  trap has now fired twice from opposite directions; check the key before adding a writer.
+- **A fingerprint is an input list.** `GameViewModel.getCurrentStateString` decides whether
+  Calculate does anything. Anything new that reaches the solver has to be added to it in
+  the same commit, or the setting works and the button does not.
 - **Anything new in `Packages/PokerCore` is picked up automatically** (SwiftPM globs the
   Sources directory) — but it must be `public` to be visible from the app, and the
   compiler will not remind you until a call site fails.
