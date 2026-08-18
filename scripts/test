@@ -14,6 +14,12 @@
 # Usage:  ./scripts/test            both suites
 #         ./scripts/test core       the engine only (fast: no simulator)
 #         ./scripts/test app        the simulator-bound tests only
+#         ./scripts/test census     the exhaustive C(52,7) category census
+#
+# `census` is deliberately not part of `all`. It deals all 133,784,560 seven-card hands
+# and compares the nine category totals with the published frequencies — the one check
+# here against numbers this repository did not produce. It costs ~25s in release and
+# ~7 minutes in debug, so it builds release and runs on demand, not in the fast loop.
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -61,6 +67,12 @@ run_core() {
     swift test --package-path Packages/PokerCore
 }
 
+run_census() {
+    echo "==> Seven-card category census (release, no simulator)"
+    POKER_CENSUS=1 swift test -c release --package-path Packages/PokerCore \
+        --filter CategoryCensusTests
+}
+
 run_app() {
     if [ "$DESTINATION" = "NO_SIMULATOR" ]; then
         echo "==> PokerAssistantTests: no iOS Simulator is installed." >&2
@@ -77,10 +89,11 @@ run_app() {
 }
 
 case "$WHICH" in
-    core) run_core ;;
-    app)  run_app ;;
-    all)  run_core; run_app ;;
-    *)    echo "usage: $0 [all|core|app]" >&2; exit 2 ;;
+    core)   run_core ;;
+    app)    run_app ;;
+    census) run_census ;;
+    all)    run_core; run_app ;;
+    *)      echo "usage: $0 [all|core|app|census]" >&2; exit 2 ;;
 esac
 
 echo "==> all requested suites passed"
