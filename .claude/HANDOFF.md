@@ -30,7 +30,7 @@ green run.
 
 An exhaustive audit produced 217 verified findings, consolidated into a ranked
 95-item backlog. **33 items are shipped, 1 withdrawn.** The test suite went from a
-single empty stub to **224 cases across 52 suites, all passing** (173 in PokerCore,
+single empty stub to **229 cases across 53 suites, all passing** (178 in PokerCore,
 51 in the app target), plus 6 gated external anchors CI runs on every push.
 
 Batch D is done: #24, #28 and #29 are closed. Item 28 was closed as **stale** — the
@@ -146,7 +146,28 @@ turned two hand-authored guesses into something anchored. What it has not touche
   *all-in*; modelling that needs a shove-range table by depth, which is five more invented
   constants with no theorem behind them. Written out at `OpponentRange.preflopRange`.
 
-**2. Batch E is blocked, and the specification is written down.** Items 21, 31 and 32 all
+**2. Backlog #14 is done — the canonical action suite.** `RecommendedActionTests` holds
+thirty concrete spots, and each says whether its expected answer rests on *arithmetic* (a
+fold forfeits a call that is priced to win; or calling loses and villain is already all in,
+so no raise can rescue it) or on *consensus* (aces do not fold preflop; seven-deuce does
+not open under the gun). Nothing is asserted because the model currently prefers it — where
+the honest answer was a judgement call, the case asserts only `neverFold`.
+
+The part that catches a *uniform* drift is the boundary sweep, because thirty spots chosen
+to sit far from the boundary would all survive one. With villain all in there is no fold
+equity to rescue a call, so the equity at which the app stops folding must be exactly
+`toCall / (pot + toCall)`. It is, in all five configurations, and a 3% shift in call EV
+moves it far enough to fail. A companion asserts a direction rather than a number for the
+case where villain still has chips: a raise can only lower that boundary, never raise it.
+
+Writing it turned up one defect nothing in either target could see. `calculatePotOdds`
+returning `toCall / potSize` — the everyday confusion between a bet's size and the price it
+lays — survived the entire engine suite. That number reaches the result card as "Need X% to
+call", so it would have told a user facing 20 into 100 that they need 20% while the solver
+went on folding at 16.7%: the displayed price and the recommendation disagreeing, with no
+test able to notice. `displayedPriceMatchesTheDecision` ties the two together.
+
+**3. Batch E is blocked, and the specification is written down.** Items 21, 31 and 32 all
 sit downstream of the postflop range gate in `EquityCalculator`, and the note there says
 what would unblock it: α, `FastHandEvaluator` and the preflop charts compose into a
 river-only continuation model with no new constants — but that models a *defending* range,
@@ -156,19 +177,21 @@ Item 31 is separately downgraded to a performance item: routing now keeps range-
 work off the range-blind GPU kernel, so the kernel is no longer answering questions it
 cannot answer.
 
-**3. Calculation Depth is largely decorative**, found while making the preflop fall-through
+**4. Calculation Depth is largely decorative**, found while making the preflop fall-through
 live. The GPU path caps at 2M iterations, so Accurate, Deep and Maximum are identical
 there; the CPU path stops at its first 50,000-hand batch for any threshold at or above
 0.0022, which is three of the four settings. The UI advertises 1M to 100M simulations. This
 is a UI and performance decision as much as a correctness one, which is why it was left.
 
-**4. Still open from the Batch D review:** the made-hand sizing ladder is a tell (the four
+**5. Still open from the Batch D review:** the made-hand sizing ladder is a tell (the four
 grades descend in lockstep with strength; `.bluff` sizing above `.weak` is *not* a defect
 and `PostflopSizingTests` now says so), and `assumedVillainBlind` guesses at three-handed
 tables where a partial constraint is actually derivable.
 
-**5. Nothing is pushed.** The branch is a long way ahead of `main` and has been for several
-sessions, on one machine.
+**6. The branch is pushed and CI is green** — `origin/fix/evaluator-correctness`, all five
+steps, including the external anchors, which now reproduce on hardware that has never seen
+this repository. `main` is untouched and no PR is open. Merging is the open decision, and
+the thing that was blocking it is now in.
 
 ## Traps that already cost time
 
