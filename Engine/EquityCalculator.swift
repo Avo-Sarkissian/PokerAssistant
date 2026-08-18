@@ -114,6 +114,28 @@ class EquityCalculator {
         // 68.4% against a "tight" one, so a bigger villain bet raises hero's equity.
         // The enumerators support ranges (see ExactEnumerator); only the routing is
         // gated, until there is a board-conditioned continuation model.
+        //
+        // **What such a model would need, and why one is not here.** Every ingredient
+        // exists: α = b/(1+b) says a defender continues with the top 1 − α of what they
+        // hold, `FastHandEvaluator` ranks any combination on any board, and the preflop
+        // charts supply the range to filter. On the river that composes into a model with
+        // no new constants at all — no cards to come, so ranking by made-hand value *is*
+        // ranking by equity, and the top 1 − α of villain's preflop range by that ranking
+        // is their continuing range.
+        //
+        // It is still not enough, and the reason is worth writing down so it is not
+        // rediscovered. That construction models a *defending* range. What this router
+        // needs, most of the time, is the range of a player who has **bet** — and a
+        // betting range is polarised, not top-down: it is the strongest hands and the
+        // weakest ones, with the middle checked. Filtering to the top 1 − α deletes
+        // villain's bluffs, which biases hero's equity upward by an amount nothing here
+        // can measure. Guessing the shape of a polarised range means hand-authoring the
+        // split, which is exactly the kind of constant the validation harness exists to
+        // stop being invented — and unlike the fold-equity table, there is no theorem to
+        // anchor it to.
+        //
+        // So the gate stays, and it stays honest: `.random` is a well-defined question
+        // with a right answer. Backlog items 21, 31 and 32 are all downstream of it.
         let postflopRange: OpponentRange.RangeType = .random
 
         switch hand.street {
