@@ -33,6 +33,18 @@ jobs:
       - name: Test PokerCore
         run: swift test --package-path Packages/PokerCore
 
+      # The external anchors — every check against numbers this repository did not
+      # produce that is too slow for the fast loop: the exhaustive C(52,7) category
+      # census, and the classic matchups enumerated over all 1,712,304 boards.
+      #
+      # They are gated behind POKER_EXTERNAL_ANCHORS, which means that without this step
+      # they never run unattended, and a *skipped* test is a green run. They were added
+      # to prove the engine is not merely self-consistent; leaving them off here would
+      # have made that proof a one-time manual observation rather than a regression
+      # guard. Release because the census is ~21s compiled and ~7 minutes interpreted.
+      - name: External anchors (census and published matchups)
+        run: ./scripts/test anchors
+
       - name: Build
         run: |
           xcodebuild \

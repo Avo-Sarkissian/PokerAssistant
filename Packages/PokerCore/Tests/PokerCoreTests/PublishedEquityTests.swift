@@ -37,39 +37,95 @@ struct PublishedEquityLadderTests {
         (5, 0.4920), (6, 0.4358), (7, 0.3879), (8, 0.3463),
     ]
 
-    /// Eight tenths of a point either way — the tolerance the four existing heads-up
-    /// anchors already use. That is six to seven standard errors at this sample size, so
-    /// a failure means the model is wrong rather than that the dice were unkind, and the
-    /// run stays unseeded so every invocation is a fresh draw rather than a frozen one.
-    ///
-    /// The sample size is a machine-time decision, not a statistical one: 250,000 puts
-    /// the whole ladder ten standard errors inside half a point but costs 27s of
-    /// eight-core wall time on every run of the fast loop, and this is one test among
-    /// thirty suites.
-    static let tolerance = 0.008
+    /// Eight tenths of a point either way, per rung — the tolerance the four existing
+    /// heads-up anchors already use, and six to seven standard errors at this sample
+    /// size. The run stays unseeded so every invocation is a fresh draw rather than a
+    /// frozen one; the sample size is a machine-time decision, not a statistical one.
+    static let perRungTolerance = 0.008
 
-    @Test("Aces hold their published equity against one through eight opponents",
-          arguments: PublishedEquityLadderTests.acesLadder)
-    func acesLadderMatchesPublishedEquity(opponents: Int, published: Double) async {
+    /// Two tenths of a point on the *mean signed error* across the eight rungs, which is
+    /// the assertion that actually has teeth.
+    ///
+    /// Per-rung tolerance has to absorb sampling noise, so it is 80× looser than the
+    /// published table itself is accurate — an engine biased by half a point sails
+    /// through eight times over. The eight rungs' errors are independent draws, so their
+    /// mean has a standard error of about 0.0004 and this threshold is five sigma of
+    /// *noise* while catching a systematic bias of a quarter of a per-rung tolerance.
+    /// Concretely, it is what catches awarding hero the whole pot on a tie instead of a
+    /// share: measured, that shifts every rung by +0.0026 to +0.0034 — inside the
+    /// per-rung tolerance at every one of the eight, and 7 sigma out on the mean.
+    static let meanErrorTolerance = 0.002
+
+    @Test("Aces hold their published equity against one through eight opponents")
+    func acesLadderMatchesPublishedEquity() async {
+        let engine = MonteCarloEngine()
+        var errors: [Double] = []
+        var report: [String] = []
+
+        for (opponents, published) in Self.acesLadder {
+            let measured = await engine.simulate(
+                hand: Hand(holeCards: cards("Ad Ac"), communityCards: []),
+                opponents: opponents,
+                deadCards: [],
+                iterations: 150_000,
+                opponentRange: .random,
+                // Below the standard error 150,000 samples can reach, so the run is never
+                // cut short by the convergence check — see `MonteCarloEngine.simulate`,
+                // where a threshold above it stops at the first 50,000-hand batch whatever
+                // the caller asked for.
+                confidenceThreshold: 0.0,
+                // The deadline *is* live here, because it is only disarmed for a seeded
+                // run and this one is deliberately unseeded. Set far enough out that a
+                // loaded machine cannot quietly answer from a fraction of the samples: if
+                // something really does hang, the suite's own time limit should be what
+                // fails, loudly, rather than an anchor silently losing its precision.
+                maxTimeSeconds: 900
+            )
+
+            errors.append(measured - published)
+            report.append("AA vs \(opponents): published \(published), measured "
+                          + String(format: "%.4f", measured)
+                          + " (\(String(format: "%+.4f", measured - published)))")
+
+            #expect(abs(measured - published) < Self.perRungTolerance,
+                    Comment(rawValue: report.last!))
+        }
+
+        let meanError = errors.reduce(0, +) / Double(errors.count)
+        #expect(abs(meanError) < Self.meanErrorTolerance,
+                Comment(rawValue: "mean signed error \(String(format: "%+.4f", meanError)) "
+                        + "across the ladder — a bias, not noise:\n"
+                        + report.joined(separator: "\n")))
+    }
+
+    /// An exact answer from a sampling engine, which is worth more than eight approximate
+    /// ones: when the board is a royal flush nobody can beat it and nobody can be beaten,
+    /// so every hand chops and hero's share is exactly 1/(n+1) on every single deal.
+    /// No sampling error, no published table, no tolerance — the arithmetic of splitting
+    /// a pot n+1 ways is the whole content.
+    ///
+    /// It is here because the ladder cannot see this. Paying a two-way share on a
+    /// three-way chop moves the ladder by at most 0.0006, well inside even the mean-error
+    /// check, and awarding hero the pot outright on a tie moves it by 0.003. Both are
+    /// decisive here.
+    @Test("A board that plays for everyone splits the pot exactly",
+          arguments: [1, 2, 3, 4])
+    func aRoyalFlushOnTheBoardChopsExactly(opponents: Int) async {
         let engine = MonteCarloEngine()
         let measured = await engine.simulate(
-            hand: Hand(holeCards: cards("Ad Ac"), communityCards: []),
+            hand: Hand(holeCards: cards("2c 3d"), communityCards: cards("As Ks Qs Js Ts")),
             opponents: opponents,
             deadCards: [],
-            iterations: 150_000,
+            iterations: 20_000,
             opponentRange: .random,
-            // Below the standard error 150,000 samples can reach, so the run is never cut
-            // short by the convergence check — see `MonteCarloEngine.simulate`, where a
-            // threshold above it stops at the first 50,000-hand batch whatever the caller
-            // asked for.
             confidenceThreshold: 0.0,
-            maxTimeSeconds: 120
+            maxTimeSeconds: 900
         )
+        let exact = 1.0 / Double(opponents + 1)
 
-        #expect(abs(measured - published) < Self.tolerance,
-                Comment(rawValue: "AA vs \(opponents): published \(published), "
-                        + "measured \(String(format: "%.4f", measured)) "
-                        + "(off by \(String(format: "%.4f", measured - published)))"))
+        #expect(abs(measured - exact) < 1e-9,
+                Comment(rawValue: "\(opponents + 1) players chopping a royal on the board: "
+                        + "each is owed \(exact), hero was given \(measured)"))
     }
 }
 

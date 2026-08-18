@@ -166,6 +166,34 @@ struct SharedBoardShowdownTests {
         #expect(won != lost, Comment(rawValue: "\(what): chopped a pot the winner won"))
     }
 
+    /// A score is a single integer, so every tie-break is packed into one number by
+    /// multipliers — pair × 10,000, second pair × 100, kicker × 1. Those multipliers have
+    /// to be large enough that a lower term can never carry into a higher one, and
+    /// nothing in the suite checked that: the category census is blind to it by
+    /// construction, and two hands only collide when they agree on the pair *and* differ
+    /// widely on the rest, which needs a shared board to arrange.
+    ///
+    /// Both cases below are real pots. Both are chops under a multiplier one decimal
+    /// place too small, and both are wins for the player who is behind under a multiplier
+    /// one place too large.
+    @Test("The tie-break multipliers do not carry into each other",
+          arguments: [
+            (board: "9s 9h 2d 4c 2c", winner: "3d 3h", loser: "Ad 5s",
+             what: "two pair: nines and threes with a four beats nines and twos with an ace"),
+            (board: "2s 2h 2d 3s 3h", winner: "3d 7c", loser: "Ac Ad",
+             what: "full house: threes full of twos beats twos full of aces"),
+          ])
+    func tieBreakMultipliersDoNotCarry(board: String, winner: String, loser: String, what: String) {
+        let evaluator = FastHandEvaluator()
+        let community = cards(board)
+        let won = evaluator.evaluate(cards(winner) + community)
+        let lost = evaluator.evaluate(cards(loser) + community)
+
+        #expect(won > lost, Comment(rawValue: "\(what): \(winner) scored \(won), "
+                                    + "\(loser) scored \(lost) on \(board)"))
+        #expect(won != lost, Comment(rawValue: "\(what): the two scores collided at \(won)"))
+    }
+
     /// The general net: deal a real showdown — five shared community cards and two hole
     /// cards each — and require the production evaluator to order it exactly as the
     /// independent oracle does. Seeded, so a disagreement can be reproduced.

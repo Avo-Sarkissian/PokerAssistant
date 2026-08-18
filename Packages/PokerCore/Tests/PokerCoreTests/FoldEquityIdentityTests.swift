@@ -56,99 +56,198 @@ struct FoldEquityIdentityTests {
         return min(max(premium, 0), 0.80)
     }
 
+    /// Whether the 0.80 ceiling in `calculateRaiseEV` actually binds in this spot. The
+    /// ceiling is unreachable after the flop — the widest range an explicit style can
+    /// produce tops out at 0.55, and no postflop bet can be more than the pot — so
+    /// without a preflop spot in the sweep it is untested code that a test would happily
+    /// claim to cover.
+    static func creditedFoldEquityWasCapped(range: OpponentRange.RangeType,
+                                            bet: Double,
+                                            pot: Double,
+                                            actsLast: Bool) -> Bool {
+        let uncapped = ExploitativeSolver.foldEquityForRange(
+            range, betSizeRelativeToPot: bet / max(pot, 1))
+            * Position.bluffFrequencyMultiplier(actingLast: actsLast)
+        return uncapped > 0.80
+    }
+
     static let allRanges: [OpponentRange.RangeType] =
         [.veryTight, .tight, .standard, .wide, .veryWide, .random]
 
     // MARK: - The identity, end to end through the solver
 
-    /// Hero holds nothing, has nothing to call, and can only check or bet. Folding is
-    /// not on the table and calling is free, so both are worth exactly 0 and the whole
-    /// decision reduces to the sign of the bet's EV — which is the identity's subject.
-    ///
-    /// The matrix is swept rather than parameterised so the last expectation can insist
-    /// that both sides of the boundary actually occurred. A version of this test that
-    /// only ever produced +EV bets would pass against a solver that recommended betting
-    /// unconditionally, and this branch has already shipped five tests that passed that
-    /// way.
-    @Test("A zero-equity bet is +EV exactly when the credited fold equity clears α")
-    func zeroEquityBetBreaksEvenAtAlpha() {
-        let solver = ExploitativeSolver()
-        let settings = makeSettings()
-        var above = 0, below = 0
+    /// One spot in the sweep. Everything here changes something the identity has to
+    /// survive: whether hero is betting or raising, how many players have to fold, how
+    /// the bet is sized, and whether chips risked are worth more than chips won.
+    struct BluffSpot {
+        let board: String
+        let pot: Double
+        let toCall: Double
+        let stack: Double
+        let villainStack: Double
+        let style: OpponentStyle
+        let actsLast: Bool
+        let playersInHand: Int
+        let icmPressure: Double
 
+        var label: String {
+            "\(style) · \(actsLast ? "IP" : "OOP") · pot \(pot) · to call \(toCall) "
+            + "· stack \(stack) · \(playersInHand) players · icm \(icmPressure)"
+        }
+    }
+
+    /// Hero holds nothing on a board that cannot have improved it, so every dollar the
+    /// bet returns comes from villain folding. Where there is nothing to call, folding is
+    /// not on the table and checking is free, so both are worth 0 and the decision is the
+    /// sign of the bet's EV. Where there *is* something to call, calling on zero equity
+    /// costs money, so folding at 0 is the thing to beat — and the identity has the same
+    /// shape either way, with hero's whole outlay in place of the bet.
+    ///
+    /// Writing `f` for the fold frequency the model credits per opponent, `n` for the
+    /// opponents who all have to fold, `P` for the pot, `C` for what the aggression costs
+    /// hero and `r` for the tournament risk premium:
+    ///
+    ///     EV  =  fⁿ·P − (1 − fⁿ)·C·r        and      EV > 0  ⟺  fⁿ > C·r / (P + C·r)
+    ///
+    /// The right-hand side is α, evaluated at hero's *risked* chips rather than at the
+    /// headline bet — ICM pressure raises the fold frequency a bluff needs exactly as if
+    /// the bet had been r times larger, which is the identity doing real work rather than
+    /// restating itself.
+    ///
+    /// The matrix is swept rather than parameterised so the coverage guards at the end
+    /// can insist the sweep stayed broad. An earlier version of this test ran 48 spots
+    /// that between them reached one street, one board, one opponent, one risk premium
+    /// and two of the five bet-size tiers, with every below-α case produced by a single
+    /// constant — and it passed, which is exactly what a sweep that has quietly collapsed
+    /// looks like.
+    @Test("A zero-equity bluff is +EV exactly when the credited fold equity clears α")
+    func zeroEquityBluffBreaksEvenAtAlpha() {
+        let solver = ExploitativeSolver()
+        var above = 0, below = 0
+        var aboveInPosition = 0, belowInPosition = 0
+        var multiwayCases = 0, riskPremiumCases = 0, facingABetCases = 0
+        var ceilingCases = 0
+        var smallestBet = Double.infinity, largestBet = 0.0
+
+        var spots: [BluffSpot] = []
         for style in [OpponentStyle.tight, .standard, .loose] {
             for actsLast in [true, false] {
-                for pot in [6.0, 12.0, 40.0, 100.0] {
-                    for stack in [40.0, 200.0] {
-                        let state = spot(hole: "7c 2d", board: "As Kh 9d",
-                                         pot: pot, toCall: 0,
-                                         stack: stack, villainStack: stack,
-                                         position: .btn, playersInHand: 2, tableSize: 6,
-                                         heroActsLast: actsLast, opponentStyle: style)
-                        let result = solver.solve(gameState: state, myEquity: 0, settings: settings)
-                        let bet = result.raiseAmount
-                        let where_ = "\(style) · \(actsLast ? "IP" : "OOP") · pot \(pot) · stack \(stack)"
-
-                        #expect(bet > 0, Comment(rawValue: "\(where_): no legal bet to price"))
-
-                        let f = Self.creditedFoldEquity(range: style.rangeType, bet: bet,
-                                                        pot: pot, actsLast: actsLast)
-                        let a = Self.alpha(bet: bet, pot: pot)
-
-                        // Win the pot when villain folds, lose the bet when villain does not.
-                        // Nothing else: hero's hand cannot win a showdown it has no equity in.
-                        let expectedEV = f * pot - (1 - f) * bet
-                        #expect(abs(result.evRaise - expectedEV) < 1e-9,
-                                Comment(rawValue: "\(where_): bet \(bet) into \(pot), "
-                                        + "solver EV \(result.evRaise) vs "
-                                        + "f·pot − (1−f)·bet = \(expectedEV) at f = \(f)"))
-
-                        // Skip the knife edge, where the two sides of the identity differ
-                        // only by rounding. Both branches are exercised well away from it —
-                        // the counters below prove it.
-                        guard abs(f - a) > 1e-6 else { continue }
-                        if f > a { above += 1 } else { below += 1 }
-
-                        #expect((result.evRaise > 0) == (f > a),
-                                Comment(rawValue: "\(where_): EV \(result.evRaise) "
-                                        + "with f = \(f) against α = \(a)"))
-
-                        let recommendsBet: Bool
-                        if case .raise = result.action { recommendsBet = true } else { recommendsBet = false }
-                        #expect(recommendsBet == (f > a),
-                                Comment(rawValue: "\(where_): recommended \(result.action) "
-                                        + "with f = \(f) against α = \(a)"))
+                for board in ["",                         // preflop: sized in blinds, and the
+                                                          // only place a bet reaches the
+                                                          // top bet-size tier and the 0.80
+                                                          // ceiling on credited folds
+                              "As Kh 9d",                 // dry, rainbow, disconnected
+                              "9h 8h 7c",                 // wet and connected
+                              "As Kh 9d 4c",              // turn
+                              "As Kh 9d 4c 2s"] {         // river
+                    for (pot, toCall) in [(6.0, 0.0), (40.0, 0.0), (100.0, 0.0),
+                                          (25.0, 10.0), (14.0, 8.0), (120.0, 30.0)] {
+                        for (stack, players, icm) in [(200.0, 2, 0.0),
+                                                      (40.0, 2, 0.0),
+                                                      (200.0, 3, 0.0),
+                                                      (200.0, 4, 0.0),
+                                                      (200.0, 2, 0.3)] {
+                            spots.append(BluffSpot(board: board, pot: pot, toCall: toCall,
+                                                   stack: stack, villainStack: stack,
+                                                   style: style, actsLast: actsLast,
+                                                   playersInHand: players, icmPressure: icm))
+                        }
                     }
                 }
             }
         }
 
+        for s in spots {
+            let state = spot(hole: "7c 2d", board: s.board,
+                             pot: s.pot, toCall: s.toCall,
+                             stack: s.stack, villainStack: s.villainStack,
+                             position: .btn, playersInHand: s.playersInHand, tableSize: 6,
+                             heroActsLast: s.actsLast, opponentStyle: s.style)
+            let settings = SolverSettings(smallBlind: 0.5, bigBlind: 1.0,
+                                          icmPressure: s.icmPressure)
+            let result = solver.solve(gameState: state, myEquity: 0, settings: settings)
+
+            let bet = result.raiseAmount
+            #expect(bet > 0, Comment(rawValue: "\(s.label): no legal bet to price"))
+            guard bet > 0 else { continue }
+
+            let opponents = max(1, s.playersInHand - 1)
+            let effectiveStack = min(s.stack, s.villainStack)
+            let cost = min(s.toCall + bet, effectiveStack)
+            let riskPremium = 1 + s.icmPressure
+            let perOpponent = Self.creditedFoldEquity(range: s.style.rangeType,
+                                                      bet: bet,
+                                                      pot: s.pot + s.toCall,
+                                                      actsLast: s.actsLast)
+            if Self.creditedFoldEquityWasCapped(range: s.style.rangeType, bet: bet,
+                                                pot: s.pot + s.toCall, actsLast: s.actsLast) {
+                ceilingCases += 1
+            }
+            let everyoneFolds = pow(perOpponent, Double(opponents))
+            let alpha = (cost * riskPremium) / (s.pot + cost * riskPremium)
+
+            let expectedEV = everyoneFolds * s.pot - (1 - everyoneFolds) * cost * riskPremium
+            #expect(abs(result.evRaise - expectedEV) < 1e-9,
+                    Comment(rawValue: "\(s.label): bet \(bet), solver EV \(result.evRaise) "
+                            + "vs fⁿ·P − (1−fⁿ)·C·r = \(expectedEV) at fⁿ = \(everyoneFolds)"))
+
+            let betRelativeToPot = bet / max(s.pot + s.toCall, 1)
+            smallestBet = min(smallestBet, betRelativeToPot)
+            largestBet = max(largestBet, betRelativeToPot)
+            if opponents > 1 { multiwayCases += 1 }
+            if riskPremium > 1 { riskPremiumCases += 1 }
+            if s.toCall > 0 { facingABetCases += 1 }
+
+            // Skip the knife edge, where the two sides differ only by rounding. Both
+            // branches are exercised far from it — the guards below prove it.
+            guard abs(everyoneFolds - alpha) > 1e-6 else { continue }
+            if everyoneFolds > alpha {
+                above += 1
+                if s.actsLast { aboveInPosition += 1 }
+            } else {
+                below += 1
+                if s.actsLast { belowInPosition += 1 }
+            }
+
+            #expect((result.evRaise > 0) == (everyoneFolds > alpha),
+                    Comment(rawValue: "\(s.label): EV \(result.evRaise) with "
+                            + "fⁿ = \(everyoneFolds) against α = \(alpha)"))
+
+            // …and the recommendation follows the arithmetic rather than diverging from
+            // it. Naming the *whole* action, not just "is it a raise", is deliberate:
+            // where checking is free the alternative to betting is a check, and a solver
+            // that folded a free option would satisfy "did not bet" perfectly well.
+            let bluffing = everyoneFolds > alpha
+            let expectedAction: CalculationResult.RecommendedAction =
+                bluffing ? .raise(amount: bet) : (s.toCall > 0 ? .fold : .call)
+            #expect(result.action == expectedAction,
+                    Comment(rawValue: "\(s.label): recommended \(result.action), "
+                            + "expected \(expectedAction) at fⁿ = \(everyoneFolds) "
+                            + "against α = \(alpha)"))
+        }
+
+        // MARK: Coverage
+        //
+        // Every one of these is a way the sweep could quietly stop testing what it says
+        // it tests. They are assertions rather than comments because a narrowed sweep
+        // still passes every assertion above it.
         #expect(above > 0 && below > 0,
-                Comment(rawValue: "the sweep never crossed α — \(above) above, \(below) below — "
-                        + "so the identity was never actually tested"))
-    }
-
-    /// The same identity stated where it is easiest to break: at the boundary itself.
-    /// A fold frequency a hair above α must be worth more than checking, and a hair
-    /// below must be worth less, whatever the pot and bet happen to be.
-    @Test("The break-even fold frequency is α and not the raw pot fraction",
-          arguments: [(pot: 10.0, bet: 5.0), (pot: 10.0, bet: 10.0),
-                      (pot: 40.0, bet: 12.0), (pot: 100.0, bet: 175.0)])
-    func breakEvenIsAlphaNotBetOverPot(pot: Double, bet: Double) {
-        let a = Self.alpha(bet: bet, pot: pot)
-
-        // The confusion this rules out: `bet / pot` is the bet size, not the break-even
-        // fold frequency. They differ by the bet's own contribution to the pot villain
-        // is being offered, which is the whole of α.
-        #expect(abs(a - bet / (pot + bet)) < 1e-12)
-
-        func bluffEV(foldFrequency f: Double) -> Double { f * pot - (1 - f) * bet }
-
-        #expect(abs(bluffEV(foldFrequency: a)) < 1e-9,
-                Comment(rawValue: "at α = \(a) a bluff should be exactly break-even, "
-                        + "measured \(bluffEV(foldFrequency: a))"))
-        #expect(bluffEV(foldFrequency: a + 0.001) > 0)
-        #expect(bluffEV(foldFrequency: a - 0.001) < 0)
+                Comment(rawValue: "never crossed α — \(above) above, \(below) below"))
+        #expect(aboveInPosition > 0 && belowInPosition > 0,
+                Comment(rawValue: "both sides of α must occur with hero acting last, or the "
+                        + "split is a test of the position multiplier and nothing else — "
+                        + "\(aboveInPosition) above, \(belowInPosition) below"))
+        #expect(multiwayCases > 0, "no multiway spot, so fⁿ was never tested for n > 1")
+        #expect(riskPremiumCases > 0, "no ICM pressure, so r was pinned at 1 throughout")
+        #expect(facingABetCases > 0, "never faced a bet, so C was always just the bet")
+        #expect(ceilingCases > 0,
+                Comment(rawValue: "the 0.80 ceiling on credited fold equity was never reached, "
+                        + "so the sweep cannot tell whether the solver applies it at all"))
+        #expect(smallestBet < 0.4 && largestBet >= 0.6,
+                Comment(rawValue: "bet sizes spanned only "
+                        + "\(String(format: "%.2f", smallestBet))–"
+                        + "\(String(format: "%.2f", largestBet)) of the pot, which does not "
+                        + "reach three of `foldEquityForRange`'s five bet-size tiers"))
     }
 
     // MARK: - Measurement
@@ -171,8 +270,10 @@ struct FoldEquityIdentityTests {
     ///   over-fold to large bets and call small ones down too wide, so an exploitative
     ///   model should credit more than α at the top of the range and less at the bottom.
     ///   This one does the opposite.
-    /// - `.veryTight` never reaches α at any size, so bluffing a range read as tight is
-    ///   unprofitable by construction rather than by measurement.
+    /// - `.veryTight` clears α only for bets under a quarter of the pot, which the solver
+    ///   reaches only when hero is nearly all in relative to the pot. At every size it
+    ///   normally chooses, bluffing a range read as tight is unprofitable by construction
+    ///   rather than by measurement.
     ///
     /// The envelope below is a sanity bound, not a target: it says the model may not
     /// credit or deny fold equity by more than a factor of three against the balanced

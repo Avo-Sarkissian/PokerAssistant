@@ -18,10 +18,12 @@ import PokerTestSupport
 // nine published counts sum to exactly C(52,7), so a transcription error in the table
 // cannot hide.
 //
-// The census is decisive because it is exhaustive. Any misclassification at all — one
-// board pattern read as a straight that is not, one wheel missed, one flush that loses
-// to a hand it beats — moves at least two of the nine totals and cannot be absorbed
-// anywhere. A sampled check can only bound the error; this pins it at zero.
+// The census is decisive about *classification* and says nothing about *ordering*. It
+// buckets on `evaluate(...) / 1_000_000`, which throws away every bit below the category,
+// so any misclassification moves at least two of the nine totals and cannot be absorbed
+// anywhere — but a flush that loses to a flush it beats moves nothing at all. That half
+// of the evaluator is `SharedBoardShowdownTests`'s job, and the division of labour is not
+// academic: dropping the fifth card from `top5Value` leaves all nine totals exact.
 
 @Suite("Seven-card category census")
 struct CategoryCensusTests {
@@ -61,7 +63,7 @@ struct CategoryCensusTests {
 
     // MARK: - The reference table checks itself
 
-    /// If the nine numbers below were mistyped, the census would compare the evaluator
+    /// If the nine numbers above were mistyped, the census would compare the evaluator
     /// against a fiction and could "fail" for a reason that has nothing to do with the
     /// evaluator. They sum to C(52,7) and to nothing else, so this catches that.
     @Test("The published counts sum to C(52,7)")
@@ -69,6 +71,57 @@ struct CategoryCensusTests {
         #expect(Self.published.reduce(0, +) == Self.totalHands)
         #expect(Self.choose(52, 7) == Self.totalHands)
         #expect(Self.published.count == 9)
+    }
+
+    /// Four of the nine are cheap to derive from scratch, so they are derived rather than
+    /// trusted. The sum check above only says the nine numbers are mutually consistent;
+    /// two compensating transcription errors would survive it. These four cannot be
+    /// wrong and still agree with a count made here from the combinatorics.
+    @Test("Four of the nine published counts derive from first principles")
+    func publishedCountsDeriveFromFirstPrinciples() {
+        // Quads: choose the rank, take all four of it, take any three of the other 48.
+        // A second quad would need an eighth card, so nothing is counted twice.
+        #expect(Self.published[7] == 13 * Self.choose(48, 3),
+                Comment(rawValue: "quads: 13·C(48,3) = \(13 * Self.choose(48, 3))"))
+
+        // Full house: no seven-card hand holds both a full house and a flush — a flush
+        // spends five cards on one suit, and the two that are left cannot supply a rank
+        // three times *and* another rank twice. So every rank pattern with a three and a
+        // two is a full house and nothing better, and the three patterns can just be
+        // counted: (3,3,1), (3,2,2), (3,2,1,1).
+        let threeThreeOne = Self.choose(13, 2) * 4 * 4 * 11 * 4
+        let threeTwoTwo   = 13 * 4 * Self.choose(12, 2) * 6 * 6
+        let threeTwoOneOne = 13 * 4 * 12 * 6 * Self.choose(11, 2) * 16
+        let fullHouses = threeThreeOne + threeTwoTwo + threeTwoOneOne
+        #expect(Self.published[6] == fullHouses,
+                Comment(rawValue: "full house: \(threeThreeOne) + \(threeTwoTwo) "
+                        + "+ \(threeTwoOneOne) = \(fullHouses)"))
+
+        // Five or more of one suit is a flush or a straight flush and never both, and
+        // never twice in one hand, because two suits with five each would need ten cards.
+        let atLeastFiveOfOneSuit = 4 * (Self.choose(13, 5) * Self.choose(39, 2)
+                                        + Self.choose(13, 6) * 39
+                                        + Self.choose(13, 7))
+        #expect(Self.published[5] + Self.published[8] == atLeastFiveOfOneSuit,
+                Comment(rawValue: "flush + straight flush: \(atLeastFiveOfOneSuit)"))
+
+        // Straight flushes on their own: count the rank subsets of a single suit that
+        // contain five in a row, fill the rest of the hand from the other 39 cards, and
+        // multiply by the four suits. With the previous check this pins the flush count
+        // individually as well.
+        var runs: [Int] = (6...14).map { top in
+            (0..<5).reduce(0) { mask, offset in mask | (1 << (top - 4 + offset - 2)) }
+        }
+        runs.append((1 << 12) | (1 << 3) | (1 << 2) | (1 << 1) | (1 << 0))   // the wheel
+        var straightFlushesInOneSuit = 0
+        for subset in 0..<(1 << 13) {
+            let held = subset.nonzeroBitCount
+            guard (5...7).contains(held) else { continue }
+            guard runs.contains(where: { subset & $0 == $0 }) else { continue }
+            straightFlushesInOneSuit += Self.choose(39, 7 - held)
+        }
+        #expect(Self.published[8] == 4 * straightFlushesInOneSuit,
+                Comment(rawValue: "straight flush: 4·\(straightFlushesInOneSuit)"))
     }
 
     // MARK: - Exhaustive
@@ -97,11 +150,15 @@ struct CategoryCensusTests {
     /// external check: draw a seeded sample and compare each category's frequency with
     /// the published proportion, in units of its own sampling standard deviation.
     ///
-    /// Five sigma per category, with nine categories and a fixed seed, is a threshold no
-    /// correct evaluator will ever cross and a broken one cannot slip under: the rarest
-    /// category here still expects ~93 hands, and the common ones expect tens of
-    /// thousands. This is a bound on the error, not a proof it is zero — run the
-    /// exhaustive census for that.
+    /// **This bounds the error; it does not pin it at zero, and the bound is loose where
+    /// the category is rare.** At this sample size five sigma is 1.0% of the one-pair
+    /// count, 2.0% of high card, 4–6% of the middle categories, 22% of four of a kind and
+    /// **52% of straight flushes** — so a defect confined to the rare categories, or one
+    /// misclassifying fewer than roughly 0.05% of all hands, passes here. Dropping the
+    /// two-trips case from the full house is exactly such a defect: 54,912 hands
+    /// reclassify, the exhaustive census fails by that exact margin, and this test sees
+    /// 1.4 sigma. It is a smoke alarm, not the proof. The proof is the exhaustive pass,
+    /// which is why CI runs it rather than relying on someone remembering to.
     @Test("A seeded sample reproduces the published category frequencies")
     func sampledCensusMatchesPublishedFrequencies() {
         let sampleSize = 300_000

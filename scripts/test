@@ -62,8 +62,6 @@ pick_destination() {
     fi
 }
 
-DESTINATION="$(pick_destination)"
-
 run_core() {
     echo "==> PokerCore (no simulator)"
     swift test --package-path Packages/PokerCore
@@ -76,6 +74,11 @@ run_anchors() {
 }
 
 run_app() {
+    # Resolved here rather than at the top of the script: `core` and `anchors` both
+    # advertise themselves as needing no simulator, and running `xcrun simctl list`
+    # four times before dispatching made that untrue.
+    local DESTINATION
+    DESTINATION="$(pick_destination)"
     if [ "$DESTINATION" = "NO_SIMULATOR" ]; then
         echo "==> PokerAssistantTests: no iOS Simulator is installed." >&2
         echo "    Install one in Xcode, or set POKER_TEST_DESTINATION." >&2

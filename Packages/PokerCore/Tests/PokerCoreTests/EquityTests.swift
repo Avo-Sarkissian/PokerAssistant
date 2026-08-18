@@ -155,6 +155,49 @@ struct ExactEnumerationTests {
         #expect(abs((produced ?? -1) - expected) < 1e-12,
                 "enumerator \(produced ?? -1) vs reference \(expected)")
     }
+
+    /// The sampler and the enumerator must answer the same question. Where both can run,
+    /// the enumerator is the oracle — it is pinned above to a brute-force count made with
+    /// the independent reference evaluator, so it has no opinions of its own.
+    ///
+    /// Two opponents *and* a range filter, deliberately, because that is the only
+    /// configuration in which the order the sampler deals its seats can matter. Each seat
+    /// is dealt from the part of the deck the earlier seats have not taken, and is
+    /// re-dealt until it holds a hand inside the range. Draw the first card from the
+    /// whole deck instead — the classic naive-shuffle slip, one token wide — and the swap
+    /// reaches back into a seat that has already passed the range check and quietly
+    /// replaces one of its cards. No card is duplicated and no player disappears, so
+    /// nothing looks wrong: the seats simply stop being interchangeable and some of them
+    /// end up holding hands the range excludes.
+    ///
+    /// Measured, that slip moves this spot from 0.0006 above the enumerator to 0.0083
+    /// above it, while leaving every published anchor on this branch inside tolerance —
+    /// the aces ladder shifts by two thousandths, because the mean of a biased sample is
+    /// still close to right when the range is the whole deck. It survived the entire
+    /// suite until this test existed.
+    @Test("Sampling agrees with enumeration when the opponents are ranged", .timeLimit(.minutes(5)))
+    func samplingAgreesWithEnumerationForRangedOpponents() async {
+        let hand = Hand(holeCards: cards("Kd Jc"), communityCards: cards("As 9h 4d 7c 2s"))
+        let enumerated = ExactEnumerator().calculateRiver(
+            hand: hand, opponents: 2, deadCards: [], opponentRange: .tight)
+        let sampled = await MonteCarloEngine().simulate(
+            hand: hand,
+            opponents: 2,
+            deadCards: [],
+            iterations: 150_000,
+            opponentRange: .tight,
+            confidenceThreshold: 0.0,
+            maxTimeSeconds: 900,
+            seed: 0xA11CE          // seeded: the tolerance is small enough to want it
+        )
+
+        #expect(enumerated != nil)
+        // Five standard errors at this sample size, and a fifth of the gap the dealing
+        // slip opens up.
+        #expect(abs(sampled - (enumerated ?? -1)) < 0.004,
+                Comment(rawValue: "enumerated \(enumerated ?? -1), sampled \(sampled) "
+                        + "(off by \(String(format: "%+.5f", sampled - (enumerated ?? 0))))"))
+    }
 }
 
 // MARK: - Reproducibility
@@ -213,6 +256,48 @@ struct ReproducibilityTests {
 
         #expect(underPressure == unhurried,
                 "the deadline changed a seeded answer: \(underPressure) vs \(unhurried)")
+    }
+
+    /// Asking for three times the samples must actually draw them.
+    ///
+    /// Two independent one-line defects reduce to the same symptom, and neither moves any
+    /// equity far enough for a published anchor to notice — the aces ladder shifts by
+    /// nothing at all, because the *mean* of a smaller sample is still unbiased. What
+    /// changes is the precision the caller was promised, silently.
+    ///
+    /// - The convergence check runs `standardError < confidenceThreshold`. Inverted, it
+    ///   fires after the first 50,000-hand batch on every call, whatever was requested —
+    ///   which is the defect `PreflopEquityTable` already hit once from the other side.
+    /// - Each batch derives its seed from the batch index. Drop that and every batch
+    ///   re-deals the identical 50,000 hands, so a 150,000-iteration run carries a third
+    ///   of the information while reporting the full count to the convergence check.
+    ///
+    /// Both make a longer run return the shorter run's answer *exactly*, which is
+    /// something no honest sampler ever does.
+    @Test("A longer run is a different run")
+    func moreSamplesMeansMoreSamples() async {
+        let engine = MonteCarloEngine()
+        func run(iterations: Int) async -> Double {
+            await engine.simulate(
+                hand: Hand(holeCards: cards("Ad Ac"), communityCards: []),
+                opponents: 2,
+                deadCards: [],
+                iterations: iterations,
+                opponentRange: .random,
+                confidenceThreshold: 0.0,   // never terminate early
+                maxTimeSeconds: 900,
+                seed: 0xB16_5A11
+            )
+        }
+        let short = await run(iterations: 50_000)
+        let long = await run(iterations: 150_000)
+
+        #expect(short != long,
+                Comment(rawValue: "50,000 and 150,000 samples returned the identical "
+                        + "\(long) — the extra 100,000 hands were never dealt"))
+        // …and the extra samples refine the answer rather than replacing it.
+        #expect(abs(short - long) < 0.01,
+                Comment(rawValue: "50,000 gave \(short), 150,000 gave \(long)"))
     }
 
     @Test("Different seeds explore different samples")
