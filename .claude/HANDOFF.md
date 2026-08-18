@@ -2,7 +2,7 @@
 
 Continuing a correctness overhaul of PokerAssistant, a Texas Hold'em decision-assistant
 iOS app (SwiftUI, Metal GPU compute). Work so far is on branch
-`fix/evaluator-correctness` — 17 commits, nothing pushed, `main` untouched.
+`fix/evaluator-correctness` — 19 commits, nothing pushed, `main` untouched.
 
 ## Run the tests with `./scripts/test`
 
@@ -18,8 +18,8 @@ range suites finish in 0.04s.
 
 An exhaustive audit produced 217 verified findings, consolidated into a ranked
 95-item backlog. **33 items are shipped, 1 withdrawn.** The test suite went from a
-single empty stub to **167 cases across 37 suites, all passing** (130 in PokerCore,
-37 in the app target).
+single empty stub to **174 cases across 38 suites, all passing** (134 in PokerCore,
+40 in the app target).
 
 Batch D is done: #24, #28 and #29 are closed. Item 28 was closed as **stale** — the
 fold-below-pot-odds guard it describes went away with `bd2bedf`, verified by splicing the
@@ -57,6 +57,7 @@ Shipped, by commit:
 | `f3fbfad` | #29 first attempt — **superseded**, see `c6d8824` |
 | `b6d72f8` | #24 — nine-seat `Position`, table size in the spot, heads-up position fixed |
 | `c6d8824` | Adversarial review response: a launch crash, the heads-up reset pot, #29 reverted the other way, the bluff premium re-keyed, five vacuous tests |
+| `0043d8a` | Position is a fact hero supplies, not one the seat implies — closes the cutoff regression |
 
 Equity is now within **0.20 percentage points** of published values where the exact
 path runs, down from being wrong by up to 36.
@@ -66,7 +67,9 @@ path runs, down from being wrong by up to 36.
 **Batch A and Batch D are done.** Backlog items 24, 28, 29, 33, 34, 35 are closed;
 21 belongs with Batch E.
 
-**1. The external validation harness.** Nothing has changed about the reason this is
+**1. The external validation harness.** ← *nothing has been started on this yet*
+
+ Nothing has changed about the reason this is
 next — every strategic constant is still hand-authored — but Batch D produced two
 concrete anchors worth building it around, and one of them is decisive:
 
@@ -99,13 +102,10 @@ input finally agree — but they are still the values calibrated by hand.
 
 **3. Found by the Batch D review, deliberately deferred, all with numbers:**
 
-- **A cutoff whose button folded is in position, and the app says otherwise.** It sizes
-  1.1x instead of 0.9x — $18.00 against $14.50 into a 40 pot — and the badge reads "Out
-  of Position". "Hero opened the CO, the BB called" is the most common flop in 6-max.
-  This is a **regression against the pre-#24 app**, where the picker offered only
-  BTN/SB/BB so that user selected BTN and got the right answer. Fixing it needs to know
-  *which* seats folded, which the app does not collect; the honest fix is probably an
-  explicit "I act last after the flop" input rather than a guess.
+- ~~A cutoff whose button folded is in position, and the app says otherwise.~~ **Fixed in
+  `0043d8a`** by asking rather than guessing: `GameStateCopy.heroActsLast` is a supplied
+  fact, seeded from the seat, overridable from a row under the seat picker. The solver now
+  takes position as two facts — posted a blind, acts last — and re-derives neither.
 - **`PotEntry.preflop` double-counts villain's posted blind whenever villain is a blind.**
   Heads-up "Open / SB" — the button facing a big-blind raise, *the* heads-up spot —
   computes a 4.0 pot where the truth is 3.0, understating required equity by 6.7 points
