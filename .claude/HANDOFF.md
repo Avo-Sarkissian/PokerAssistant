@@ -2,7 +2,7 @@
 
 Continuing a correctness overhaul of PokerAssistant, a Texas Hold'em decision-assistant
 iOS app (SwiftUI, Metal GPU compute). Work so far is on branch
-`fix/evaluator-correctness` — 19 commits, nothing pushed, `main` untouched.
+`fix/evaluator-correctness` — 20 commits, nothing pushed, `main` untouched.
 
 ## Run the tests with `./scripts/test`
 
