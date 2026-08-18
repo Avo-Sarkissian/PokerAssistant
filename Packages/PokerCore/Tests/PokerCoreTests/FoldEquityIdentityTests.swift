@@ -25,10 +25,10 @@ import PokerTestSupport
 // +EV exactly when the fold frequency the model credits exceeds α — and the
 // recommendation follows the arithmetic rather than diverging from it.
 //
-// Measured: how far `foldEquityForRange` sits from α. Those numbers are what a
-// re-calibration would have to change, and pinning them as targets would only freeze
-// today's guesses. The envelope test below bounds them instead, so the constants cannot
-// drift silently, and the table is reproduced in a comment where it can be read.
+// Measured: how far `foldEquityForRange` sits from α. That measurement is what drove the
+// table to be re-anchored — fold equity is now α times a constant per range, so the
+// multiple is a property of the opponent rather than of the bet size, and the test below
+// asserts exactly that rather than pinning the six constants as targets.
 
 @Suite("Fold equity against the balanced-defence baseline")
 struct FoldEquityIdentityTests {
@@ -252,82 +252,121 @@ struct FoldEquityIdentityTests {
 
     // MARK: - Measurement
 
-    /// What `foldEquityForRange` credits, as a multiple of α, over the bet sizes the
-    /// solver can actually produce. Measured 2026-08-17:
+    /// The six rates, at the one bet size they are stated for.
     ///
-    /// | b    | α     | veryTight | tight | standard | wide | veryWide | random |
-    /// |------|-------|-----------|-------|----------|------|----------|--------|
-    /// | 0.25 | 0.200 | 1.00      | 1.40  | 1.80     | 2.20 | 2.60     | 2.80   |
-    /// | 0.50 | 0.333 | 0.68      | 0.95  | 1.22     | 1.49 | 1.76     | 1.89   |
-    /// | 0.75 | 0.429 | 0.58      | 0.82  | 1.05     | 1.28 | 1.52     | 1.63   |
-    /// | 1.00 | 0.500 | 0.55      | 0.77  | 0.99     | 1.21 | 1.43     | 1.54   |
-    /// | 1.75 | 0.636 | 0.50      | 0.69  | 0.89     | 1.09 | 1.29     | 1.34   |
+    /// Anchoring fold equity to α moved *how the table extrapolates*, deliberately not
+    /// *what it says*: at three-quarters of the pot — the size at which the old step
+    /// function applied no adjustment at all — every range must still fold exactly what it
+    /// folded before. Without this, re-reading the table at some other reference size
+    /// would rescale all six constants at once and leave every proportionality and
+    /// ordering assertion happy.
     ///
-    /// Two things are visible in that table and neither is asserted here, because both
-    /// are calibration questions rather than arithmetic ones:
-    ///
-    /// - The multiple *falls* as the bet grows, which is backwards. Real opponents
-    ///   over-fold to large bets and call small ones down too wide, so an exploitative
-    ///   model should credit more than α at the top of the range and less at the bottom.
-    ///   This one does the opposite.
-    /// - `.veryTight` clears α only for bets under a quarter of the pot, which the solver
-    ///   reaches only when hero is nearly all in relative to the pot. At every size it
-    ///   normally chooses, bluffing a range read as tight is unprofitable by construction
-    ///   rather than by measurement.
-    ///
-    /// The envelope below is a sanity bound, not a target: it says the model may not
-    /// credit or deny fold equity by more than a factor of three against the balanced
-    /// baseline. It exists so a re-calibration is a deliberate act with a failing test
-    /// in front of it, which is more than any strategic constant in this repository has
-    /// had until now.
-    @Test("Credited fold equity stays within a factor of three of α")
-    func creditedFoldEquityStaysNearTheBalancedBaseline() {
-        let sizes = [0.25, 0.30, 0.40, 0.50, 0.60, 0.75, 0.85, 1.00, 1.10, 1.50, 1.75]
-        var worstLow = (multiple: Double.infinity, label: "")
-        var worstHigh = (multiple: 0.0, label: "")
-
-        for range in Self.allRanges {
-            for b in sizes {
-                let f = ExploitativeSolver.foldEquityForRange(range, betSizeRelativeToPot: b)
-                let multiple = f / (b / (1 + b))
-                let label = "\(range) at \(b) pot: \(String(format: "%.3f", f)) "
-                          + "vs α \(String(format: "%.3f", b / (1 + b))) = \(String(format: "%.2f", multiple))×"
-                if multiple < worstLow.multiple { worstLow = (multiple, label) }
-                if multiple > worstHigh.multiple { worstHigh = (multiple, label) }
-            }
-        }
-
-        #expect(worstLow.multiple > 1.0 / 3.0, Comment(rawValue: "denies too much — \(worstLow.label)"))
-        #expect(worstHigh.multiple < 3.0, Comment(rawValue: "credits too much — \(worstHigh.label)"))
+    /// This is the one place in the suite that states a strategic constant as a number,
+    /// and it is here so that changing one is a deliberate act with a failing test in
+    /// front of it.
+    @Test("The table folds what it says it folds, at three-quarters of the pot",
+          arguments: [(range: OpponentRange.RangeType.veryTight, rate: 0.25),
+                      (range: .tight, rate: 0.35),
+                      (range: .standard, rate: 0.45),
+                      (range: .wide, rate: 0.55),
+                      (range: .veryWide, rate: 0.65),
+                      (range: .random, rate: 0.70)])
+    func theTableStatesItsOwnRates(range: OpponentRange.RangeType, rate: Double) {
+        let credited = ExploitativeSolver.foldEquityForRange(range, betSizeRelativeToPot: 0.75)
+        #expect(abs(credited - rate) < 1e-12,
+                Comment(rawValue: "\(range) folds \(credited) at three-quarters of the pot, "
+                        + "where the table says \(rate)"))
     }
 
-    /// **Disabled: this is a defect, not a passing invariant.** It states the property
-    /// the fold-equity model should have and does not; it is left executable so the fix
-    /// has a specification to be measured against.
+    /// Nobody folds everything, however large the bet and however loose the range. The
+    /// ceiling is the only place the model stops being proportional to α, so it is the
+    /// only other number worth stating.
+    @Test("Credited fold equity is capped below certainty")
+    func creditedFoldEquityIsCapped() {
+        for range in Self.allRanges {
+            for b in [2.0, 5.0, 50.0] {
+                let credited = ExploitativeSolver.foldEquityForRange(range, betSizeRelativeToPot: b)
+                #expect(credited <= 0.85 + 1e-12,
+                        Comment(rawValue: "\(range) folds \(credited) to a \(b)-pot bet"))
+            }
+        }
+        // …and the cap is reached rather than merely respected, or it is not being tested.
+        #expect(abs(ExploitativeSolver.foldEquityForRange(.random, betSizeRelativeToPot: 3.0) - 0.85) < 1e-12)
+    }
+
+    /// What `foldEquityForRange` credits, as a multiple of α. Since fold equity was
+    /// anchored to α the multiple is a property of the *range* and nothing else, which is
+    /// the whole content of that change and is what this asserts:
     ///
-    /// α rises smoothly with the bet, but `foldEquityForRange` multiplies its base rate
-    /// by a *step* function of bet size, so the difference between them jumps at each
-    /// step boundary. Whether a zero-equity bluff is profitable therefore flips back and
-    /// forth as the bet grows. Measured over a 0.01-pot sweep:
+    /// | range       | multiple | reading                                    |
+    /// |-------------|----------|--------------------------------------------|
+    /// | `.veryTight`| 0.583    | defends far more than a balanced opponent  |
+    /// | `.tight`    | 0.817    | defends more                               |
+    /// | `.standard` | 1.050    | almost exactly balanced                    |
+    /// | `.wide`     | 1.283    | over-folds                                 |
+    /// | `.veryWide` | 1.517    | over-folds badly                           |
+    /// | `.random`   | 1.633    | folds anything it cannot use               |
     ///
-    /// - `.standard` is profitable to 0.82 pot, unprofitable from 0.82, profitable again
-    ///   from 0.85, unprofitable from 0.99, profitable again at 1.10, unprofitable from
-    ///   1.11. Four sign changes.
-    /// - `.tight` flips at 0.39, back at 0.40, and away again at 0.46.
+    /// Those six numbers are not new. Each is the old table's rate at three-quarters of
+    /// the pot divided by α there, so every range folds exactly what it folded before at
+    /// the reference size. What changed is that the figure no longer wanders with bet
+    /// size: it used to run from 2.80× at a quarter-pot bet down to 0.50× at 1.75 pot,
+    /// crossing the balanced line in the middle, which is how bluff profitability ended up
+    /// flipping back and forth.
     ///
-    /// In a $100 pot that means an $82 bluff is priced as losing and an $85 bluff as
-    /// winning, against the same opponent with the same cards. The solver's own sizing
-    /// lands inside that band routinely: a medium hand out of position on a wet board at
-    /// SPR under 4 sizes to 0.87 pot.
+    /// The one place proportionality stops is the 0.85 ceiling — nobody folds everything —
+    /// and that binds only above about a 1.1-pot bet against the two loosest ranges.
+    @Test("Credited fold equity is a fixed multiple of α, whatever the bet size")
+    func creditedFoldEquityIsProportionalToAlpha() {
+        let sizes = [0.25, 0.30, 0.40, 0.50, 0.60, 0.75, 0.85, 1.00, 1.10, 1.50, 1.75]
+
+        for range in Self.allRanges {
+            var multiples: [(size: Double, multiple: Double)] = []
+            for b in sizes {
+                let alpha = b / (1 + b)
+                let credited = ExploitativeSolver.foldEquityForRange(range, betSizeRelativeToPot: b)
+                // Above the ceiling the model is deliberately not proportional any more.
+                guard credited < 0.85 - 1e-12 else { continue }
+                multiples.append((b, credited / alpha))
+            }
+
+            #expect(multiples.count >= 8,
+                    Comment(rawValue: "\(range): only \(multiples.count) of \(sizes.count) "
+                            + "sizes sit below the ceiling, so this proves little"))
+
+            let reference = multiples[0].multiple
+            for (size, multiple) in multiples {
+                #expect(abs(multiple - reference) < 1e-9,
+                        Comment(rawValue: "\(range) folds \(multiple)× α at \(size) pot but "
+                                + "\(reference)× at \(multiples[0].size) — the multiple is "
+                                + "supposed to be a property of the range, not of the bet"))
+            }
+
+            // The envelope stays as a sanity bound on the six constants themselves: no
+            // range may credit or deny fold equity by more than a factor of three against
+            // a balanced defender. Under the step function the worst case was 2.80 and
+            // this had almost no slack left.
+            #expect(reference > 1.0 / 3.0 && reference < 3.0,
+                    Comment(rawValue: "\(range) sits at \(reference)× a balanced defender"))
+        }
+    }
+
+    /// Bluff profitability must not flip back and forth as the bet grows.
     ///
-    /// The contained fix keeps the model's own numbers and removes the steps by anchoring
-    /// the whole table to α: `f(range, b) = min(α(b) · k(range), 0.85)` with
-    /// `k(range) = foldEquityForRange(range, 0.75) / α(0.75)`. That reproduces today's
-    /// values exactly at the model's default size, introduces no constant that is not
-    /// already there, makes the multiple constant in bet size, and makes this test pass.
-    /// It also changes every raise EV in the app, which is why it is not in this commit.
+    /// This shipped `.disabled` alongside the α identity, as an executable statement of a
+    /// defect rather than a passing test: `foldEquityForRange` multiplied a base rate by a
+    /// *step* function of bet size while α rises smoothly, so the gap between them jumped
+    /// at every step boundary. `.standard` changed sign four times over this sweep —
+    /// profitable to 0.82 pot, unprofitable from 0.82, profitable again from 0.85,
+    /// unprofitable from 0.99, profitable at 1.10, unprofitable from 1.11 — which in a
+    /// $100 pot means an $82 bluff priced as losing where an $85 bluff won, against the
+    /// same opponent holding the same cards.
+    ///
+    /// Enabling it is what drove the fix. One sign change is still allowed: the 0.85
+    /// ceiling stops the credited rate rising with α forever, so a large enough bet
+    /// eventually outruns it.
     @Test("Bluff profitability does not flip back and forth as the bet grows",
-          .disabled("known defect: the bet-size multiplier is a step function — see the note above"))
+          )
     func bluffProfitabilityIsMonotoneInBetSize() {
         for range in Self.allRanges {
             var flips: [String] = []

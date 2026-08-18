@@ -21,12 +21,27 @@ struct SemiBluffTests {
     /// The exact spot the backlog said could not happen: hero's equity is below the
     /// price of a call, so calling is a loss and folding is the passive answer — and a
     /// raise still wins, because villain folds often enough to pay for it.
+    ///
+    /// **Villain bets 20 into 40, not 30 into 30.** The pot-sized version of this spot was
+    /// what this test used until fold equity was anchored to α, and it was always a knife
+    /// edge: it priced at +2.6 chips, and it re-priced to −4.4 when the fold-equity table
+    /// stopped multiplying its base rate by a step function of bet size. Two things move
+    /// together at a pot-sized bet, and both point the same way. Villain's range reads
+    /// `.tight` after betting the pot on a dry king-high board, and a tight range folds
+    /// 0.82× what a balanced defender does. Meanwhile hero is risking 30 + 42 = 72 to win
+    /// a pot of 60, which needs folds 55% of the time — more than any range in the model
+    /// offers. Declining that raise is the model working, not failing.
+    ///
+    /// A raise over a *smaller* bet is a different price: hero risks 20 + 37.50 to win the
+    /// same 60, villain's small bet reads as a wider range, and the line clears
+    /// comfortably rather than by a chip or two. Which is the point — a reachability test
+    /// pitched at the edge of reachability tells you almost nothing when it passes.
     @Test("A raise below the price of a call is recommended when villain folds enough")
     func bluffRaiseIsReachable() {
         let solver = ExploitativeSolver()
-        // Villain bet 30 into 30 on a dry flop. Hero has 20% equity and the deep stack
+        // Villain bet 20 into 40 on a dry flop. Hero has 20% equity and the deep stack
         // to make a real raise.
-        let state = spot(board: "Ks 7h 2d", pot: 60, toCall: 30,
+        let state = spot(board: "Ks 7h 2d", pot: 60, toCall: 20,
                          stack: 200, villainStack: 200, position: .btn)
         let result = solver.solve(gameState: state, myEquity: 0.20, settings: makeSettings())
 
@@ -44,6 +59,14 @@ struct SemiBluffTests {
         #expect(amount > 0)
         #expect(result.evRaise > 0,
                 "the raise was recommended at \(result.evRaise) — a losing line cannot be the argmax here")
+        // Not a knife edge. The spot this replaced passed at +2.6 chips out of a 60 pot,
+        // so a few per cent anywhere in the fold-equity model decided it — and eventually
+        // did. Ten chips is a sixth of the pot.
+        let bestAlternative = max(result.evFold, result.evCall)
+        #expect(result.evRaise - bestAlternative > 10,
+                Comment(rawValue: "the bluff-raise beats its alternative by only "
+                        + "\(result.evRaise - bestAlternative) — this spot is back on the "
+                        + "edge and will flip on the next calibration change"))
     }
 
     /// The other half of the claim: that the seat's bluff treatment never reaches a
