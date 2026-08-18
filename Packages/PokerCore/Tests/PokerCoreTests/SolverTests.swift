@@ -21,6 +21,7 @@ func spot(hole: String = "Ad Ac",
           position: Position = .btn,
           playersInHand: Int = 2,
           tableSize: Int = 6,
+          heroActsLast: Bool? = nil,
           bigBlind: Double = 1.0,
           heroWagerThisStreet: Double = 0,
           opponentStyle: OpponentStyle = .unknown) -> GameStateCopy {
@@ -41,6 +42,9 @@ func spot(hole: String = "Ad Ac",
         opponentStyle: opponentStyle,
         playersInHand: playersInHand,
         tableSize: tableSize,
+        // Defaults to what the seat implies, which is what the app defaults to. Pass it
+        // explicitly to test a hero who says otherwise.
+        heroActsLast: heroActsLast ?? position.isInPosition(tableSize: tableSize),
         heroWagerThisStreet: heroWagerThisStreet
     )
 }

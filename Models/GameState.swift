@@ -23,7 +23,9 @@ class GameState: ObservableObject {
     /// Hero's seat. A `Position` rather than a string: as a string, the solver's parser
     /// mapped anything it did not recognise to the button, so the six seats a nine-handed
     /// table has beyond BTN/SB/BB were all priced as buttons.
-    @Published var position: Position = .btn
+    @Published var position: Position = .btn {
+        didSet { if position != oldValue { actsLastOverride = nil } }
+    }
 
     @Published var opponentStyle: OpponentStyle = .unknown
 
@@ -43,7 +45,11 @@ class GameState: ObservableObject {
     /// three-handed table, and a test that invoked the corrector itself could not have
     /// noticed that call going missing.
     @Published var tableSize: Int = 6 {
-        didSet { clampSeatToTable() }
+        didSet {
+            guard tableSize != oldValue else { return }
+            clampSeatToTable()
+            actsLastOverride = nil
+        }
     }
 
     /// Opponents hero is actually up against right now.
@@ -108,15 +114,31 @@ class GameState: ObservableObject {
         }
     }
     
-    /// Whether hero acts last after the flop.
+    /// Hero's answer to "do you act last after the flop", when hero has given one.
+    ///
+    /// `nil` means "use what the seat implies", which is the default and the old
+    /// behaviour. It exists because the seat cannot settle the question: a cutoff whose
+    /// button folded acts last, and the app knows how many players are live but never
+    /// which chairs they hold. Deriving it and stopping priced the most common flop in
+    /// six-max — hero opens the cutoff, the big blind calls — out of position.
+    ///
+    /// Cleared whenever the seat or the table changes, because the default it was
+    /// overriding has changed with them.
+    @Published var actsLastOverride: Bool?
+
+    /// Whether hero acts last after the flop: hero's answer if given, the seat's
+    /// otherwise.
     ///
     /// This used to read `position == "BTN" || position == "CO"`, naming a seat the
     /// picker could not select — so the "In Position" badge was documentation for a
     /// feature that did not exist — and it was wrong heads-up, where the small blind
     /// holds the button and acts last.
     var isInPosition: Bool {
-        position.isInPosition(tableSize: tableSize)
+        actsLastOverride ?? position.isInPosition(tableSize: tableSize)
     }
+
+    /// What the seat alone implies, which is what the control is seeded with.
+    var seatImpliesActsLast: Bool { position.isInPosition(tableSize: tableSize) }
 
     /// Start a fresh hand. The pot goes back to the posted blinds: carrying the last
     /// hand's pot forward leaves a huge pot beside a one-blind call, which prices
@@ -126,6 +148,7 @@ class GameState: ObservableObject {
         communityCards = [nil, nil, nil, nil, nil]
         deadCards = []
         opponentStyle = .unknown
+        actsLastOverride = nil
         self.bigBlind = bigBlind
         self.villainStack = stack
         // A fresh hand is dealt to every seat, so the two are the same number here and
@@ -188,6 +211,7 @@ extension GameStateCopy {
             opponentStyle: gameState.opponentStyle,
             playersInHand: gameState.playersInHand,
             tableSize: gameState.tableSize,
+            heroActsLast: gameState.isInPosition,
             heroWagerThisStreet: gameState.heroWagerThisStreet
         )
     }

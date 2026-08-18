@@ -91,12 +91,11 @@ public enum Position: String, CaseIterable, Codable, Sendable, Hashable, Identif
     /// Hero acts last after the flop: the button, or the small blind heads-up.
     ///
     /// **Definitely** last, which is not the same as "last against the players still in
-    /// the hand." A cutoff whose button has folded also acts last, and the app cannot
-    /// know that — it tracks how many players are live, not which seats they hold. So a
-    /// cutoff heads-up on the flop reads out of position here and is sized 1.1× rather
-    /// than 0.9×. That is the conservative direction and it is wrong; correcting it needs
-    /// an input the app does not collect, and inventing a rule for it is a strategic
-    /// change queued behind the external validation harness.
+    /// the hand": a cutoff whose button has folded also acts last, and no seat can say so.
+    /// This is therefore the *default* the app seeds its position control with, not the
+    /// answer the solver uses — that comes from `GameStateCopy.heroActsLast`, which hero
+    /// supplies. Deriving it here and stopping was what priced the most common flop in
+    /// six-max out of position.
     ///
     /// A seat the table does not deal is not in position at that table. Widening the
     /// table until the seat exists — which `postflopActionIndex` does — would otherwise
@@ -119,8 +118,12 @@ public enum Position: String, CaseIterable, Codable, Sendable, Hashable, Identif
 
     // MARK: - Positional adjustments
 
-    /// How much more (or less) fold equity a bluff earns from this seat: the two values
-    /// the three-seat version used, now asked of the right seats.
+    /// How much more (or less) fold equity a bluff earns: the two values the three-seat
+    /// version used, keyed on whether hero acts last.
+    ///
+    /// Static, and taking the fact rather than a seat, because the seat cannot settle it —
+    /// a cutoff whose button folded acts last too. `GameStateCopy.heroActsLast` carries the
+    /// answer; `isInPosition(tableSize:)` supplies its default.
     ///
     /// This was briefly a ramp over the postflop order, interpolating 0.6 to 1.3 across
     /// all nine seats. That was wrong, and measurably so. Postflop only *live* players
@@ -136,8 +139,8 @@ public enum Position: String, CaseIterable, Codable, Sendable, Hashable, Identif
     /// villain cannot see hero's cards, so hero's *hand* should not move villain's fold
     /// rate at all, and villain can see hero's *seat* — which argues the sign is backwards,
     /// since a late-position bettor is credited with a wider range and called looser.
-    public func bluffFrequencyMultiplier(tableSize: Int) -> Double {
-        isInPosition(tableSize: tableSize) ? 1.3 : 0.6
+    public static func bluffFrequencyMultiplier(actingLast: Bool) -> Double {
+        actingLast ? 1.3 : 0.6
     }
 
     /// Hero's total street contribution when opening an unopened pot, in big blinds.

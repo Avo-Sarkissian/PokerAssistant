@@ -150,3 +150,106 @@ struct SeatPricingTests {
         #expect(result.reasoning.contains("out of position"), Comment(rawValue: result.reasoning))
     }
 }
+
+// MARK: - Position is told, not guessed
+
+/// Hero opens the cutoff and the big blind calls. Hero acts last on every street from the
+/// flop on — but the seat cannot say so, because the app knows how many players are live
+/// and never which chairs they hold. Deriving position from the seat priced that flop out
+/// of position, at $18.00 into a 40 pot where $14.50 is right.
+///
+/// It was also a **regression**: while the picker offered only BTN/SB/BB, a cutoff player
+/// selected BTN and got the correct answer. Making their real seat selectable made their
+/// advice worse. So position is now a fact hero supplies, with the seat as its default.
+@Suite("Position is supplied, not derived")
+struct SuppliedPositionTests {
+
+    private let solver = ExploitativeSolver()
+
+    private func advice(_ seat: Position, actsLast: Bool?) -> ExploitativeSolver.SolverResult {
+        solver.solve(gameState: spot(board: "Ks 7h 2d", pot: 40, toCall: 0, stack: 400,
+                                     villainStack: 400, position: seat,
+                                     playersInHand: 2, tableSize: 6, heroActsLast: actsLast),
+                     myEquity: 0.62, settings: makeSettings())
+    }
+
+    /// The headline case: a cutoff who says they act last is priced exactly as a button
+    /// is, because at that point the two spots are the same spot.
+    @Test("A cutoff who acts last is priced as a button", arguments: [0.30, 0.62, 0.90])
+    func cutoffActingLastMatchesTheButton(equity: Double) {
+        func result(_ seat: Position, actsLast: Bool?) -> ExploitativeSolver.SolverResult {
+            solver.solve(gameState: spot(board: "Ks 7h 2d", pot: 40, toCall: 0, stack: 400,
+                                         villainStack: 400, position: seat,
+                                         playersInHand: 2, tableSize: 6, heroActsLast: actsLast),
+                         myEquity: equity, settings: makeSettings())
+        }
+
+        let cutoff = result(.co, actsLast: true)
+        let button = result(.btn, actsLast: nil)   // the button's own default is true
+
+        #expect(cutoff.raiseAmount == button.raiseAmount,
+                Comment(rawValue: "cutoff sized \(cutoff.raiseAmount), button \(button.raiseAmount)"))
+        #expect(abs(cutoff.evRaise - button.evRaise) < 1e-9,
+                Comment(rawValue: "cutoff priced \(cutoff.evRaise), button \(button.evRaise)"))
+        #expect(cutoff.reasoning == button.reasoning)
+    }
+
+    /// And the flag has to actually move the numbers, in the documented direction: acting
+    /// last bets smaller (0.9x rather than 1.1x) and earns the higher bluff premium.
+    @Test("Saying hero acts last changes the size and the price")
+    func theFlagMovesTheAnswer() {
+        let last = advice(.co, actsLast: true)
+        let notLast = advice(.co, actsLast: false)
+
+        #expect(last.raiseAmount < notLast.raiseAmount,
+                Comment(rawValue: "acting last sized \(last.raiseAmount), " +
+                        "not acting last \(notLast.raiseAmount)"))
+        #expect(last.reasoning.contains("in position"))
+        #expect(notLast.reasoning.contains("out of position"))
+    }
+
+    /// A hero who says nothing gets what the seat implies, so the default is the old
+    /// behaviour and nobody has to touch the control to be no worse off.
+    @Test("Unstated position falls back to the seat", arguments: 2...9)
+    func unstatedPositionFallsBackToTheSeat(tableSize: Int) {
+        for seat in Position.seats(tableSize: tableSize) {
+            let derived = solver.solve(
+                gameState: spot(board: "Ks 7h 2d", pot: 40, toCall: 0, stack: 400,
+                                villainStack: 400, position: seat,
+                                playersInHand: 2, tableSize: tableSize, heroActsLast: nil),
+                myEquity: 0.62, settings: makeSettings())
+            let stated = solver.solve(
+                gameState: spot(board: "Ks 7h 2d", pot: 40, toCall: 0, stack: 400,
+                                villainStack: 400, position: seat, playersInHand: 2,
+                                tableSize: tableSize,
+                                heroActsLast: seat.isInPosition(tableSize: tableSize)),
+                myEquity: 0.62, settings: makeSettings())
+
+            #expect(derived.raiseAmount == stated.raiseAmount,
+                    Comment(rawValue: "\(tableSize)-handed \(seat.rawValue): " +
+                            "\(derived.raiseAmount) derived vs \(stated.raiseAmount) stated"))
+        }
+    }
+
+    /// The preflop open size must **not** follow this flag. It keys on whether hero posted
+    /// a blind, and a cutoff who will act last after the flop still opens 2.5bb.
+    @Test("Saying hero acts last does not change the preflop open")
+    func theFlagDoesNotChangeThePreflopOpen() {
+        func openTo(_ seat: Position, actsLast: Bool) -> Double {
+            let entry = PotEntry.blindsOnly(heroPosition: seat, smallBlind: 0.5, bigBlind: 1.0)
+            let blind = seat == .sb ? 0.5 : (seat == .bb ? 1.0 : 0.0)
+            let result = solver.solve(
+                gameState: spot(pot: entry.totalPot, toCall: entry.toCall, stack: 100,
+                                villainStack: 100, position: seat, tableSize: 6,
+                                heroActsLast: actsLast, heroWagerThisStreet: blind),
+                myEquity: 0.55, settings: makeSettings())
+            return blind + entry.toCall + result.raiseAmount
+        }
+
+        for seat in Position.seats(tableSize: 6) {
+            #expect(abs(openTo(seat, actsLast: true) - openTo(seat, actsLast: false)) < 1e-9,
+                    Comment(rawValue: "\(seat.rawValue) opened to \(openTo(seat, actsLast: true))bb " +
+                            "acting last and \(openTo(seat, actsLast: false))bb not"))
+        }
+    }
+}

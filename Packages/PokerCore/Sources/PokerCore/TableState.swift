@@ -134,6 +134,22 @@ public struct GameStateCopy: Sendable {
     /// word.
     public let tableSize: Int
 
+    /// Whether hero acts last after the flop — a **fact hero supplies**, not one the app
+    /// derives.
+    ///
+    /// The seat cannot settle it. A cutoff whose button folded acts last, and the app
+    /// tracks how many players are live, never which chairs they hold. Deriving it from
+    /// the seat alone meant the most common flop in six-max — hero opens the cutoff, the
+    /// big blind calls — was priced out of position and sized $18.00 into a 40 pot where
+    /// $14.50 is right. Worse, that was a regression: with only BTN/SB/BB selectable, such
+    /// a user picked BTN and got the correct answer, so making their real seat available
+    /// made their answer worse.
+    ///
+    /// `Position.isInPosition(tableSize:)` still supplies the default, so a caller that
+    /// does not know any better gets the old behaviour; it is the app's job to let hero
+    /// say otherwise.
+    public let heroActsLast: Bool
+
     /// Hero's total contribution to the current street so far: a posted blind, plus any
     /// raise hero has already made this street.
     ///
@@ -154,6 +170,7 @@ public struct GameStateCopy: Sendable {
                 opponentStyle: OpponentStyle,
                 playersInHand: Int,
                 tableSize: Int,
+                heroActsLast: Bool,
                 heroWagerThisStreet: Double = 0) {
         self.holeCards = holeCards
         self.communityCards = communityCards
@@ -171,11 +188,12 @@ public struct GameStateCopy: Sendable {
                          max(Position.supportedTableSizes.lowerBound, tableSize))
         self.tableSize = seated
         self.playersInHand = min(seated, max(2, playersInHand))
+        self.heroActsLast = heroActsLast
         self.heroWagerThisStreet = heroWagerThisStreet
     }
 
-    /// Whether hero acts last after the flop, at this table size.
-    public var isInPosition: Bool { position.isInPosition(tableSize: tableSize) }
+    /// Whether hero acts last after the flop. Carried, not derived — see `heroActsLast`.
+    public var isInPosition: Bool { heroActsLast }
 
     /// Opponents hero is actually up against right now.
     public var opponentCount: Int { max(1, playersInHand - 1) }

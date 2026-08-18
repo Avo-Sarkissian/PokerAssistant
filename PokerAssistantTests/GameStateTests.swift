@@ -157,6 +157,14 @@ struct HandLifecycleTests {
         viewModel.gameState.position = .btn
         expectRestored("the seat")
 
+        // Hero's own answer on position, which changes the postflop size and the
+        // fold-equity premium and which no other field implies.
+        viewModel.gameState.actsLastOverride = true
+        #expect(viewModel.getCurrentStateString() != baseline,
+                "hero's position answer is not in the fingerprint")
+        viewModel.gameState.actsLastOverride = nil
+        expectRestored("hero's position answer")
+
         // And the table size sets how far that seat is from the button, so the same seat
         // at a different table size is a different spot.
         viewModel.gameState.tableSize = 9
@@ -269,6 +277,67 @@ struct SeatStateTests {
         state.position = .co
         state.tableSize = 6
         #expect(state.position == .co, "the cutoff exists six-handed and was moved anyway")
+    }
+
+    /// The seat supplies a default; hero supplies the answer. A cutoff whose button folded
+    /// acts last, and the app tracks how many players are live, never which chairs they
+    /// hold — so it asks rather than guessing.
+    @Test("Hero's answer on position beats the seat's default")
+    func heroOverridesTheSeatDefault() {
+        let state = GameState()
+        state.tableSize = 6
+        state.position = .co
+
+        #expect(!state.isInPosition, "the cutoff's default is out of position")
+        state.actsLastOverride = true
+        #expect(state.isInPosition, "hero said they act last and was not believed")
+        #expect(GameStateCopy(from: state).heroActsLast,
+                "hero's answer did not reach the solver's copy")
+
+        state.actsLastOverride = false
+        #expect(!state.isInPosition)
+
+        state.actsLastOverride = nil
+        #expect(state.isInPosition == state.seatImpliesActsLast,
+                "clearing the answer did not fall back to the seat")
+    }
+
+    /// The answer is about a seat at a table. Moving either invalidates it, so it clears
+    /// rather than following hero to a chair it was never about.
+    @Test("Changing the seat or the table clears hero's answer")
+    func movingClearsTheOverride() {
+        let state = GameState()
+        state.tableSize = 6
+        state.position = .co
+        state.actsLastOverride = true
+
+        state.position = .utg
+        #expect(state.actsLastOverride == nil, "the answer survived a seat change")
+
+        state.position = .co
+        state.actsLastOverride = true
+        state.tableSize = 9
+        #expect(state.actsLastOverride == nil, "the answer survived a table-size change")
+
+        // Setting the same value is not a move.
+        state.actsLastOverride = true
+        state.tableSize = 9
+        state.position = .co
+        #expect(state.actsLastOverride == true,
+                "re-assigning the same seat and table cleared an answer that was still valid")
+    }
+
+    /// A fresh hand starts from the seat again.
+    @Test("A reset hand forgets hero's answer")
+    func resetForgetsTheOverride() {
+        let state = GameState()
+        state.tableSize = 6
+        state.position = .co
+        state.actsLastOverride = true
+
+        state.reset(smallBlind: 0.5, bigBlind: 1.0, playersInHand: 6)
+        #expect(state.actsLastOverride == nil)
+        #expect(state.isInPosition, "a reset hand is on the button, which acts last")
     }
 
     /// The crash, as a test. `SeatExplanation` exists as a value type precisely so this

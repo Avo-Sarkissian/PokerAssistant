@@ -158,37 +158,29 @@ struct PostflopPositionTests {
         #expect(order.last == .btn)
     }
 
-    /// The bluff premium is the two values the three-seat version used — 1.3 for the seat
-    /// that acts last, 0.6 for everyone else — and it must not depend on the table size
-    /// beyond deciding which seat that is.
-    ///
-    /// It was briefly a ramp interpolating those two ends across all nine seats. That is
-    /// why this test is written against the *value* rather than against the ordering: the
-    /// ramp was monotone in the postflop order by construction, so a monotonicity check
-    /// over that same order was an identity and stayed green when the order itself was
-    /// wrong.
-    @Test("The bluff premium is the seat's, and does not drift with the table size",
-          arguments: 2...9)
-    func bluffPremiumIsTheSeatsAlone(tableSize: Int) {
-        for seat in Position.seats(tableSize: tableSize) {
-            let premium = seat.bluffFrequencyMultiplier(tableSize: tableSize)
-            let expected = seat.isInPosition(tableSize: tableSize) ? 1.3 : 0.6
-            #expect(abs(premium - expected) < 1e-9,
-                    "\(tableSize)-handed \(seat.rawValue) got \(premium), expected \(expected)")
-        }
+    /// The bluff premium is the two values the three-seat version used, and it takes the
+    /// *fact* rather than a seat, because the seat cannot settle it — see
+    /// `GameStateCopy.heroActsLast`.
+    @Test("The bluff premium is 1.3 acting last and 0.6 otherwise")
+    func bluffPremiumIsTwoValued() {
+        #expect(abs(Position.bluffFrequencyMultiplier(actingLast: true) - 1.3) < 1e-9)
+        #expect(abs(Position.bluffFrequencyMultiplier(actingLast: false) - 0.6) < 1e-9)
     }
 
-    /// The concrete regression: one physical spot must not be priced differently because
-    /// seats that are not in the hand exist. Hero is in the big blind against a single
-    /// villain, and acts first against that villain whatever the table seats.
-    @Test("The same seat gets the same premium at every table size")
-    func premiumDoesNotVaryWithSeatsThatFolded() {
-        let premiums = (2...9).map { Position.bb.bluffFrequencyMultiplier(tableSize: $0) }
-        #expect(Set(premiums.map { ($0 * 1e9).rounded() }).count == 1,
-                Comment(rawValue: "the big blind's premium moves with the table size: " +
-                        (2...9).map { "\($0)p \(String(format: "%.3f", Position.bb.bluffFrequencyMultiplier(tableSize: $0)))" }
-                            .joined(separator: " ")))
-        #expect(abs(premiums.first! - 0.6) < 1e-9)
+    /// And the seat-derived default, which is what the app seeds the control with: exactly
+    /// the button, or the small blind heads-up, at every table size — no drift.
+    @Test("The seat's default position does not drift with the table size")
+    func seatDefaultDoesNotDriftWithTableSize() {
+        for seat in Position.allCases {
+            let sizes = (3...9).filter { seat.exists(tableSize: $0) }
+            let defaults = sizes.map { seat.isInPosition(tableSize: $0) }
+            #expect(Set(defaults).count == 1,
+                    Comment(rawValue: "\(seat.rawValue) changes its default across " +
+                            zip(sizes, defaults).map { "\($0.0)p \($0.1)" }.joined(separator: " ")))
+        }
+        // Heads-up is the one genuine exception: the small blind holds the button.
+        #expect(Position.sb.isInPosition(tableSize: 2))
+        #expect(!Position.sb.isInPosition(tableSize: 3))
     }
 
     /// A seat the table does not deal is not in position at that table. Widening it until
@@ -201,8 +193,8 @@ struct PostflopPositionTests {
         #expect(!Position.btn.exists(tableSize: 2))
         #expect(!Position.btn.isInPosition(tableSize: 2),
                 "a two-handed table with no button reported one as last to act")
-        #expect(abs(Position.btn.bluffFrequencyMultiplier(tableSize: 2) - 0.6) < 1e-9,
-                "an unseated button collected the in-position bluff premium")
+        #expect(!Position.btn.isInPosition(tableSize: 2),
+                "an unseated button would default to the in-position bluff premium")
 
         // Three-handed has no cutoff either, and reading one must not make it the button.
         #expect(!Position.co.isInPosition(tableSize: 3))

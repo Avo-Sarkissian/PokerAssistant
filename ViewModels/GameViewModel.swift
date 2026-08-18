@@ -112,6 +112,9 @@ class GameViewModel: ObservableObject {
             "\(settings?.numberOfPlayers ?? 0)",
             "\(gameState.heroWagerThisStreet)",
             gameState.position.rawValue,
+            // Hero's own answer on position, which the seat cannot supply and which
+            // changes both the postflop size and the fold-equity premium.
+            gameState.actsLastOverride.map(String.init(describing:)) ?? "seat",
             gameState.opponentStyle.rawValue,
             "\(settings?.smallBlind ?? 0)",
             "\(settings?.bigBlind ?? 0)",

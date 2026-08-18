@@ -82,6 +82,14 @@ struct MainGameView: View {
                     }
                     .padding(.horizontal)
 
+                    // --- ACTS LAST ---
+                    //
+                    // The seat cannot answer this and the app cannot infer it, so it is
+                    // asked. The seat supplies the default, so a user who never touches
+                    // this control gets exactly what they got before.
+                    actsLastRow
+                        .padding(.horizontal)
+
                     // Position explanation
                     Text(positionExplanation)
                         .font(.caption2)
@@ -187,6 +195,43 @@ struct MainGameView: View {
         gameViewModel.gameState.communityCards.compactMap { $0 }.count >= 3
     }
 
+    /// "Do you act last after the flop?" — the one positional fact the app cannot work out
+    /// for itself. A cutoff whose button folded acts last; the app knows how many players
+    /// are live but never which chairs they hold.
+    @ViewBuilder
+    private var actsLastRow: some View {
+        let state = gameViewModel.gameState
+        HStack(spacing: 8) {
+            Text("ACTS LAST AFTER THE FLOP")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+
+            Spacer(minLength: 4)
+
+            ForEach([true, false], id: \.self) { answer in
+                let isOn = state.isInPosition == answer
+                Button {
+                    // Storing nil when hero agrees with the seat keeps the answer tracking
+                    // the seat if they later move: an override is only recorded when it
+                    // actually overrides something.
+                    state.actsLastOverride = (answer == state.seatImpliesActsLast) ? nil : answer
+                } label: {
+                    Text(answer ? "Yes" : "No")
+                        .font(.caption.weight(isOn ? .semibold : .regular))
+                        .frame(minWidth: 34)
+                        .padding(.vertical, 5)
+                        .background(isOn ? (answer ? Color.green : Color.orange) : Color(.systemGray5))
+                        .foregroundColor(isOn ? .white : .primary)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(ScaleButtonStyle())
+                .accessibilityLabel(answer ? "I act last after the flop"
+                                           : "Someone acts after me after the flop")
+                .accessibilityAddTraits(isOn ? [.isSelected] : [])
+            }
+        }
+    }
+
     @ViewBuilder
     private func seatChip(_ candidate: Position) -> some View {
         let isSelected = seat == candidate
@@ -217,7 +262,8 @@ struct MainGameView: View {
                         tableSize: settings.numberOfPlayers,
                         smallBlind: settings.smallBlind,
                         bigBlind: settings.bigBlind,
-                        isPostFlop: isPostFlop).text
+                        isPostFlop: isPostFlop,
+                        actsLast: gameViewModel.gameState.isInPosition).text
     }
 
     
@@ -832,6 +878,10 @@ struct SeatExplanation {
     let bigBlind: Double
     let isPostFlop: Bool
 
+    /// Hero's answer, not the seat's. Defaults to what the seat implies so that a caller
+    /// with nothing better to say still gets the old text.
+    var actsLast: Bool?
+
     /// Spelled out for the accessibility label and the explanation line. Exhaustive on
     /// purpose: a new seat cannot be added without naming it.
     static func name(of seat: Position) -> String {
@@ -855,12 +905,12 @@ struct SeatExplanation {
     /// "2 players · 1 opponent" was simply false; the number of seats behind hero is a fact
     /// about the table and stays true however many have folded.
     var text: String {
-        let inPosition = seat.isInPosition(tableSize: tableSize)
+        let inPosition = actsLast ?? seat.isInPosition(tableSize: tableSize)
         let name = Self.name(of: seat)
 
         if isPostFlop {
             if inPosition {
-                return "\(name): you act last after the flop — no seat acts behind you."
+                return "\(name): you act last after the flop."
             }
             return "\(name): \(seats(behindPostflop)) act after you on every street from the flop on."
         }
