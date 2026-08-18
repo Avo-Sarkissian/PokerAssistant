@@ -9,7 +9,7 @@ class CalculationViewModel: ObservableObject {
     private let solver = ExploitativeSolver()
 
     func calculate(gameState: GameState, settings: Settings) async throws -> CalculationResult {
-        let copy = GameStateCopy(from: gameState)
+        let copy = GameStateCopy(from: gameState, trackingOpponents: settings.trackOpponents)
         return try await calculateFromCopy(gameState: copy, settings: settings)
     }
 
@@ -101,7 +101,12 @@ class CalculationViewModel: ObservableObject {
             spr: solverResult.spr,
             potOddsDisplay: potOddsDisplay,
             boardTexture: solverResult.boardTexture,
-            street: gameState.currentStreet
+            street: gameState.currentStreet,
+            // Captured, not read live: the card below the banner has to describe the spot
+            // this recommendation was made for.
+            heroActsLast: gameState.heroActsLast,
+            requiredEquity: solverResult.potOdds,
+            heroWagerThisStreet: gameState.heroWagerThisStreet
         )
     }
 

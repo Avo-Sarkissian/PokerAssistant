@@ -14,6 +14,24 @@ public struct CalculationResult {
     public let boardTexture: String?    // e.g. "Flush draw possible · High board"
     public let street: Street
 
+    // Everything below is captured at calculation time for the same reason `toCall` is:
+    // this struct is a snapshot of a decision, and the card that displays it must not
+    // narrate a table that has moved on since. `ResultView` used to read hero's seat and
+    // the pot odds live from `GameState`, so tapping a seat flipped the "In Position"
+    // badge above a reasoning string that still said the opposite.
+
+    /// Whether hero acts last after the flop — the fact hero supplied, as it stood when
+    /// this decision was made.
+    public let heroActsLast: Bool
+
+    /// The share of the final pot hero needed for calling to break even, as a fraction.
+    /// Zero when there was nothing to call.
+    public let requiredEquity: Double
+
+    /// What hero had already put in on this street — a posted blind, plus anything bet
+    /// before villain raised. Needed to say what a raise is *to*, rather than what it adds.
+    public let heroWagerThisStreet: Double
+
     public init(action: RecommendedAction,
                 equity: Double,
                 expectedValue: Double,
@@ -25,7 +43,10 @@ public struct CalculationResult {
                 spr: Double,
                 potOddsDisplay: String?,
                 boardTexture: String?,
-                street: Street) {
+                street: Street,
+                heroActsLast: Bool,
+                requiredEquity: Double,
+                heroWagerThisStreet: Double) {
         self.action = action
         self.equity = equity
         self.expectedValue = expectedValue
@@ -38,6 +59,15 @@ public struct CalculationResult {
         self.potOddsDisplay = potOddsDisplay
         self.boardTexture = boardTexture
         self.street = street
+        self.heroActsLast = heroActsLast
+        self.requiredEquity = requiredEquity
+        self.heroWagerThisStreet = heroWagerThisStreet
+    }
+
+    /// The headline the result card shows, built from the snapshot rather than from
+    /// whatever the table looks like now.
+    public var actionDisplay: String {
+        action.displayStringWithContext(toCall: toCall, heroWagerThisStreet: heroWagerThisStreet)
     }
 
     public enum RecommendedAction: Equatable {
@@ -53,7 +83,13 @@ public struct CalculationResult {
             }
         }
 
-        public func displayStringWithContext(toCall: Double) -> String {
+        /// `heroWagerThisStreet` is what hero has already put in — a posted blind, or a bet
+        /// villain then raised. Without it "RAISE to" names the wrong number: a small blind
+        /// opening to 3bb showed "RAISE to $2.50", the same figure a button open shows,
+        /// which hid the out-of-position premium the sizing deliberately adds. The blind is
+        /// hero's money and it is already in the pot; the total is what hero will have in
+        /// after acting.
+        public func displayStringWithContext(toCall: Double, heroWagerThisStreet: Double = 0) -> String {
             switch self {
             case .fold:
                 return "FOLD"
@@ -66,14 +102,13 @@ public struct CalculationResult {
                 }
 
             case .raise(let amount):
-                if toCall == 0 {
-                    // No bet to call - this is an opening bet, not a raise
+                let totalThisStreet = heroWagerThisStreet + toCall + amount
+                if toCall == 0 && heroWagerThisStreet == 0 {
+                    // Nothing to call and nothing already in: an opening bet, not a raise.
                     return "BET $\(String(format: "%.2f", amount))"
-                } else {
-                    // There's a bet - show raise details
-                    let totalCommitted = toCall + amount
-                    return "RAISE to $\(String(format: "%.2f", totalCommitted)) (+$\(String(format: "%.2f", amount)) more)"
                 }
+                return "RAISE to $\(String(format: "%.2f", totalThisStreet)) "
+                     + "(+$\(String(format: "%.2f", amount)) more)"
             }
         }
 

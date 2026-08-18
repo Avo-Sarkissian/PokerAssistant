@@ -38,7 +38,7 @@ struct ResultView: View {
                 HStack(spacing: 8) {
                     Image(systemName: actionIcon)
                         .font(.system(size: 22, weight: .bold))
-                    Text(result.action.displayStringWithContext(toCall: result.toCall))
+                    Text(result.actionDisplay)
                         .font(.system(size: 26, weight: .black))
                         .minimumScaleFactor(0.7)
                         .lineLimit(1)
@@ -102,10 +102,10 @@ struct ResultView: View {
                 .frame(height: 7)
 
             HStack(spacing: 6) {
-                // Pot odds check
-                if gameViewModel.gameState.toCall > 0 {
-                    let needed = gameViewModel.gameState.toCall /
-                        (gameViewModel.gameState.potSize + gameViewModel.gameState.toCall) * 100
+                // Pot odds check, from the snapshot rather than from the live table —
+                // see the note on `CalculationResult.heroActsLast`.
+                if result.toCall > 0 {
+                    let needed = result.requiredEquity * 100
                     let have = result.equity * 100
                     Image(systemName: have >= needed ? "checkmark.circle.fill" : "xmark.circle.fill")
                         .font(.caption)
@@ -118,12 +118,13 @@ struct ResultView: View {
                     Spacer()
                 }
 
-                // Position
-                Image(systemName: gameViewModel.gameState.isInPosition
+                // Position, likewise from the snapshot: tapping a seat used to flip this
+                // badge above a reasoning string that still said the opposite.
+                Image(systemName: result.heroActsLast
                       ? "arrow.right.circle.fill" : "arrow.left.circle.fill")
                     .font(.caption)
-                    .foregroundColor(gameViewModel.gameState.isInPosition ? .green : .orange)
-                Text(gameViewModel.gameState.isInPosition ? "In Position" : "Out of Position")
+                    .foregroundColor(result.heroActsLast ? .green : .orange)
+                Text(result.heroActsLast ? "In Position" : "Out of Position")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }

@@ -433,3 +433,44 @@ struct DecisionConsistencyTests {
     }
 }
 
+
+// MARK: - What the result card says
+
+/// The recommendation is displayed as a *total* — "RAISE to $X" — and a total has to
+/// include the money hero already has in front of them. It did not.
+@Suite("Recommendation display")
+struct RecommendationDisplayTests {
+
+    /// The spot from the review: a small blind opening to 3bb in a $1 game. Hero posted
+    /// $0.50, owes $0.50 to match the big blind, and the solver sizes the raise at $2.00
+    /// on top. The total is $3.00 — but the blind was left out, so it read $2.50, which is
+    /// exactly what a button open shows, hiding the out-of-position premium the preflop
+    /// sizing deliberately adds.
+    @Test("A raise from a blind is announced at its true total")
+    func aRaiseFromABlindIncludesThePostedBlind() {
+        let opened = CalculationResult.RecommendedAction.raise(amount: 2.00)
+
+        #expect(opened.displayStringWithContext(toCall: 0.50, heroWagerThisStreet: 0.50)
+                == "RAISE to $3.00 (+$2.00 more)")
+        // The button posts nothing, so the same raise is a smaller total — which is the
+        // difference the display was hiding.
+        #expect(opened.displayStringWithContext(toCall: 0.50, heroWagerThisStreet: 0)
+                == "RAISE to $2.50 (+$2.00 more)")
+    }
+
+    /// A first bet with nothing already committed is a bet, not a raise to anything.
+    @Test("An opening bet is still a bet")
+    func anOpeningBetIsNotARaise() {
+        let bet = CalculationResult.RecommendedAction.raise(amount: 12.00)
+        #expect(bet.displayStringWithContext(toCall: 0, heroWagerThisStreet: 0) == "BET $12.00")
+    }
+
+    /// The big blind raising an unopened pot owes nothing but has a blind in front of
+    /// them, so it is a raise to more than it adds.
+    @Test("The big blind raising a limped pot is raising, not betting")
+    func theBigBlindRaisingALimpedPotIsARaise() {
+        let raise = CalculationResult.RecommendedAction.raise(amount: 4.00)
+        #expect(raise.displayStringWithContext(toCall: 0, heroWagerThisStreet: 1.00)
+                == "RAISE to $5.00 (+$4.00 more)")
+    }
+}

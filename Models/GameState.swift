@@ -197,7 +197,14 @@ class GameState: ObservableObject {
 /// solver could not be tested without it. Only the bridge from the observable app
 /// object stays here.
 extension GameStateCopy {
-    init(from gameState: GameState) {
+    /// `trackingOpponents` is not optional and has no default on purpose. Turning
+    /// "Track Opponents" off hides the style selector but left the stored style running
+    /// the solver: villain stayed pinned to a `.wide` range for the rest of the session,
+    /// short-circuiting the bet-size inference, with no control on screen to undo it.
+    /// Resolving it here rather than in an `onChange` means it cannot depend on an event
+    /// having fired — a setting that is off is off from the next calculation onward,
+    /// whatever order the user did things in.
+    init(from gameState: GameState, trackingOpponents: Bool) {
         self.init(
             holeCards: gameState.holeCards,
             communityCards: gameState.communityCards,
@@ -208,7 +215,7 @@ extension GameStateCopy {
             potSize: gameState.potSize,
             toCall: gameState.toCall,
             bigBlind: gameState.bigBlind,
-            opponentStyle: gameState.opponentStyle,
+            opponentStyle: trackingOpponents ? gameState.opponentStyle : .unknown,
             playersInHand: gameState.playersInHand,
             tableSize: gameState.tableSize,
             heroActsLast: gameState.isInPosition,

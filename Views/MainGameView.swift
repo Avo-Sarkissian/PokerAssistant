@@ -180,6 +180,14 @@ struct MainGameView: View {
                 updateForPosition(selectedPosition)
             }
         }
+        // The blinds are mirrored into game state the same way the table size is, and for
+        // the same reason need the same treatment: Settings is a sheet, so `onAppear` never
+        // runs again after it is dismissed. #24 added an `onChange` for `numberOfPlayers`
+        // and did not add one here, so changing stake mid-session left the pot seeded at
+        // the old level — and `bigBlind` stale, which is what stack-in-blinds and SPR are
+        // measured in — until the hand was reset.
+        .onChange(of: settings.smallBlind) { old, new in reseedForBlindChange(oldSmall: old, newSmall: new) }
+        .onChange(of: settings.bigBlind) { old, new in reseedForBlindChange(oldBig: old, newBig: new) }
         .sheet(item: $selectedCardIndex) { selection in
             CardSelectorView(
                 selectedCard: binding(for: selection),
@@ -267,6 +275,20 @@ struct MainGameView: View {
     }
 
     
+    /// The rule lives in `BlindChange` so it can be tested; this only wires it up.
+    private func reseedForBlindChange(oldSmall: Double? = nil, newSmall: Double? = nil,
+                                      oldBig: Double? = nil, newBig: Double? = nil) {
+        let change = BlindChange(
+            previousBlindTotal: (oldSmall ?? settings.smallBlind) + (oldBig ?? settings.bigBlind),
+            newBlindTotal: (newSmall ?? settings.smallBlind) + (newBig ?? settings.bigBlind))
+        // Always mirrored: stack-in-blinds and SPR are measured in it.
+        gameViewModel.gameState.bigBlind = settings.bigBlind
+        if let pot = change.reseededPot(currentPot: gameViewModel.gameState.potSize) {
+            gameViewModel.gameState.potSize = pot
+            updateForPosition(selectedPosition)
+        }
+    }
+
     private func initializePotWithBlinds() {
         // Seed the pot with the posted blinds if it has not been set yet.
         let blindsTotal = settings.smallBlind + settings.bigBlind

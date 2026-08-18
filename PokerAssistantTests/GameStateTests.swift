@@ -291,7 +291,7 @@ struct SeatStateTests {
         #expect(!state.isInPosition, "the cutoff's default is out of position")
         state.actsLastOverride = true
         #expect(state.isInPosition, "hero said they act last and was not believed")
-        #expect(GameStateCopy(from: state).heroActsLast,
+        #expect(GameStateCopy(from: state, trackingOpponents: true).heroActsLast,
                 "hero's answer did not reach the solver's copy")
 
         state.actsLastOverride = false
@@ -398,7 +398,7 @@ struct SeatStateTests {
         state.position = .hj
         state.playersInHand = 4
 
-        let copy = GameStateCopy(from: state)
+        let copy = GameStateCopy(from: state, trackingOpponents: true)
         #expect(copy.tableSize == 9)
         #expect(copy.position == .hj)
         #expect(!copy.isInPosition, "the hijack is not the last seat to act nine-handed")
@@ -416,7 +416,7 @@ struct SeatStateTests {
         state.position = .sb
         state.playersInHand = 6
 
-        let copy = GameStateCopy(from: state)
+        let copy = GameStateCopy(from: state, trackingOpponents: true)
         #expect(copy.tableSize == 2, "the table grew to \(copy.tableSize) seats")
         #expect(copy.playersInHand == 2, "\(copy.playersInHand) players at a two-handed table")
         #expect(copy.position == .sb, "hero was moved to the \(copy.position.rawValue)")
@@ -640,7 +640,7 @@ struct PlayersInHandTests {
                 state.playersInHand = playersInHand
             }
             let result = try await CalculationViewModel()
-                .calculateFromCopy(gameState: GameStateCopy(from: state), settings: settings)
+                .calculateFromCopy(gameState: GameStateCopy(from: state, trackingOpponents: true), settings: settings)
             return result.equity
         }
 
@@ -652,3 +652,94 @@ struct PlayersInHandTests {
     }
 }
 }   // SettingsBackedStateTests
+
+// MARK: - The tracking toggle, and what the result card remembers
+
+/// Turning "Track Opponents" off hides the style selector but used to leave the stored
+/// style running the solver: `opponentStyle` short-circuits bet-size inference, so villain
+/// stayed pinned to whatever was last tagged for the rest of the session with no control
+/// on screen to undo it.
+@Suite("Opponent tracking")
+@MainActor
+struct OpponentTrackingTests {
+
+    private func stateTagged(_ style: OpponentStyle) -> GameState {
+        let state = GameState()
+        state.opponentStyle = style
+        return state
+    }
+
+    @Test("A stored style does not reach the solver while tracking is off")
+    func trackingOffDiscardsTheStoredStyle() {
+        let copy = GameStateCopy(from: stateTagged(.loose), trackingOpponents: false)
+        #expect(copy.opponentStyle == .unknown,
+                Comment(rawValue: "villain is still tagged \(copy.opponentStyle) with the "
+                        + "selector hidden and no way to change it"))
+    }
+
+    /// The other half, or the fix would be "ignore the setting" rather than "honour it".
+    @Test("A stored style still reaches the solver while tracking is on")
+    func trackingOnKeepsTheStoredStyle() {
+        let copy = GameStateCopy(from: stateTagged(.loose), trackingOpponents: true)
+        #expect(copy.opponentStyle == .loose)
+    }
+
+    /// The consequence that made it worth fixing: the style decides villain's range, so
+    /// leaving it live leaves the range live too.
+    @Test("Turning tracking off returns villain to a range read from their bet")
+    func trackingOffRestoresBetSizeInference() {
+        let tagged = GameStateCopy(from: stateTagged(.tight), trackingOpponents: true)
+        let untagged = GameStateCopy(from: stateTagged(.tight), trackingOpponents: false)
+
+        #expect(tagged.opponentStyle.rangeType == .tight)
+        #expect(untagged.opponentStyle.rangeType == .standard,
+                "with tracking off the range must come from the action, not from a tag")
+    }
+}
+
+/// `ResultView` used to read hero's seat and the pot odds live from `GameState` while
+/// everything else on the card came from the `CalculationResult` captured at solve time,
+/// so tapping a seat flipped the "In Position" badge above a reasoning string that still
+/// said the opposite.
+@Suite("The result card describes the spot it was asked about", .timeLimit(.minutes(3)))
+@MainActor
+struct ResultSnapshotTests {
+
+    @Test("Position and required equity are captured, not read live")
+    func positionAndPotOddsComeFromTheSnapshot() async throws {
+        let snapshot = DefaultsSnapshot()
+        defer { snapshot.restore() }
+
+        let state = GameState()
+        state.holeCards = [card("Ad"), card("Ac")]
+        state.communityCards = [card("Ks"), card("7h"), card("2d"), nil, nil]
+        state.potSize = 60
+        state.toCall = 20
+        state.stack = 200
+        state.villainStack = 200
+        state.playersInHand = 2
+        state.tableSize = 6
+        state.position = .sb
+        state.actsLastOverride = false
+
+        let settings = Settings()
+        let copy = GameStateCopy(from: state, trackingOpponents: settings.trackOpponents)
+        let result = try await CalculationViewModel()
+            .calculateFromCopy(gameState: copy, settings: settings)
+
+        #expect(result.heroActsLast == false,
+                "the card would show 'In Position' for a spot solved out of position")
+        // 20 to win 80.
+        #expect(abs(result.requiredEquity - 0.25) < 1e-9,
+                Comment(rawValue: "required equity captured as \(result.requiredEquity)"))
+
+        // Now move the table underneath it, exactly as tapping a seat does. The captured
+        // result must not change its mind.
+        state.position = .btn
+        state.actsLastOverride = true
+        state.toCall = 0
+
+        #expect(result.heroActsLast == false)
+        #expect(abs(result.requiredEquity - 0.25) < 1e-9)
+    }
+}

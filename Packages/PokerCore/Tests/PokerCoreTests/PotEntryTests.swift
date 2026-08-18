@@ -138,3 +138,46 @@ struct PreflopPresetTests {
         #expect(abs(atFive.requiredEquity - atOne.requiredEquity) < 1e-9)
     }
 }
+
+// MARK: - Changing the stake mid-session
+
+/// Settings is a sheet over the main view, so `onAppear` never runs again once it is
+/// dismissed. #24 added an `onChange` for the table size and did not add one for the
+/// blinds, which are mirrored into game state the same way — so changing stake mid-session
+/// left the pot seeded at the old level, and `bigBlind` stale, until the hand was reset.
+@Suite("Changing the stake")
+struct BlindChangeTests {
+
+    @Test("A fresh hand is re-seeded at the new stake")
+    func aFreshHandFollowsTheStake() {
+        // $0.50/$1 to $1/$2, with nothing entered: the pot is still just the blinds.
+        let change = BlindChange(previousBlindTotal: 1.50, newBlindTotal: 3.00)
+        #expect(change.reseededPot(currentPot: 1.50) == 3.00)
+    }
+
+    /// The half of the rule that matters more: a user who has typed a real pot and then
+    /// goes to Settings must not come back to find it discarded.
+    @Test("A hand in progress keeps the pot the user entered")
+    func aHandInProgressIsLeftAlone() {
+        let change = BlindChange(previousBlindTotal: 1.50, newBlindTotal: 3.00)
+        #expect(change.reseededPot(currentPot: 42.00) == nil)
+    }
+
+    /// Moving *down* in stake has to re-seed too. Testing only the upward direction would
+    /// pass against a rule that compared the pot with the new blinds rather than the old
+    /// ones — 1.50 is above a new total of 0.75, so that rule would leave a fresh hand
+    /// sitting at the previous stake.
+    @Test("Dropping to a smaller stake re-seeds a fresh hand")
+    func droppingStakeAlsoReseeds() {
+        let change = BlindChange(previousBlindTotal: 1.50, newBlindTotal: 0.75)
+        #expect(change.reseededPot(currentPot: 1.50) == 0.75)
+    }
+
+    /// Floating point: a pot seeded as 0.5 + 1.0 must still count as untouched.
+    @Test("A pot seeded from the blinds counts as untouched")
+    func seededPotCountsAsUntouched() {
+        let seeded = 0.5 + 1.0
+        let change = BlindChange(previousBlindTotal: 1.50, newBlindTotal: 3.00)
+        #expect(change.reseededPot(currentPot: seeded) == 3.00)
+    }
+}

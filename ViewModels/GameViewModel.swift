@@ -149,7 +149,7 @@ class GameViewModel: ObservableObject {
         lastCalculatedState = getCurrentStateString()
 
         // Capture game state for background calculation
-        let gameStateCopy = GameStateCopy(from: gameState)
+        let gameStateCopy = GameStateCopy(from: gameState, trackingOpponents: settingsToUse.trackOpponents)
 
         // Use Task.detached to run calculation OFF the main thread
         // This prevents blocking the UI and allows timeouts to work
