@@ -106,6 +106,38 @@ turned two hand-authored guesses into something anchored. What it has not touche
   out of position, against anyone, at any size.** Pinned by
   `bluffabilityIsATwelveEntryTable`, which asserts the table without endorsing it. If one
   thing gets measured next, make it this.
+
+  **Measured before handing over, because it changes how to approach the fix.** Position
+  reaches raise EV twice — once through sizing (`baseSizingPercent *= actsLast ? 0.9 : 1.1`)
+  and once through `foldFrequencyMultiplier`. The two routes pull in *opposite* directions
+  and do not cancel: a bluff sized in position is smaller, so α is lower and credited folds
+  fall to 0.87×, while the multiplier raises them 2.17×. Net 1.88×, identically for every
+  range, since both terms are proportional.
+
+  The decisive part is what happens if the multiplier is removed and only sizing keeps its
+  positional term:
+
+  | range | EV(IP) | EV(OOP) | with multiplier removed: IP / OOP |
+  |---|---|---|---|
+  | `.veryTight` | −0.217 | −0.715 | −0.375 / −0.458 |
+  | `.tight` | +0.056 | −0.561 | −0.165 / −0.202 |
+  | `.standard` | +0.329 | −0.407 | +0.045 / +0.055 |
+  | `.wide` | +0.602 | −0.253 | +0.255 / +0.312 |
+  | `.veryWide` | +0.875 | −0.099 | +0.465 / +0.568 |
+  | `.random` | +1.011 | −0.022 | +0.570 / +0.697 |
+
+  (Per unit of base bet size, `EV = R·(k·m − 1)`.) **Sizing alone never changes the sign** —
+  both seats agree about every range. The entire "no bluffing out of position, ever" result
+  comes from the 1.3/0.6 pair and nothing else. So the question to settle is not how to
+  rebalance two interacting terms; it is whether villain's folding should carry a positional
+  term at all, given that position already moves the bet.
+
+  One more consequence of the α anchor worth knowing before touching this: with the
+  multiplier at 1.0, out-of-position bluffs price *better* than in-position ones for every
+  range, because `EV = R·(k−1)` is linear in the bet and the out-of-position seat bets
+  bigger. The model has no interior optimum for bluff sizing — when `k·m > 1` it wants the
+  largest bet available, when `k·m < 1` it wants none. Nothing in the solver optimises over
+  size, so this is latent rather than active, but any future sizing work meets it.
 - **The `HandStrength` equity cutoffs** (backlog #32's neighbour) and the 169-hand chart's
   ordering. Both still hand-calibrated.
 - **Preflop tier boundaries are absolute in big blinds**, so a 20bb shove reads as a 4-bet.
