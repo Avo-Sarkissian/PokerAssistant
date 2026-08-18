@@ -16,11 +16,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Whatever the image ships, newest first, rather than a pinned version.
+      # `Xcode_16.app` was pinned here and the pin outlived its platform: on this runner
+      # image Xcode 16 has no iOS runtime installed, so *every* simulator destination is
+      # ineligible and the first `xcodebuild` step fails with "iOS 18.0 is not installed"
+      # no matter which device is named. Taking the newest also narrows the gap with the
+      # developer machine — a branch that passed 224 local tests failed the first CI step
+      # on a trailing comma, which is Swift 6.1 syntax that Xcode 16's 6.0 rejects.
       - name: Select Xcode
-        run: sudo xcode-select -switch /Applications/Xcode_16.app
+        run: |
+          sudo xcode-select -switch "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
 
       - name: Show toolchain
-        run: xcodebuild -version && swift --version
+        run: |
+          xcodebuild -version && swift --version
+          echo "--- installed simulator runtimes ---"
+          xcrun simctl list runtimes
 
       # The engine's own suite needs no simulator and is by far the fastest signal in
       # this workflow, so it runs before anything is booted. If the maths is wrong,
@@ -45,31 +56,32 @@ jobs:
       - name: External anchors (census and published matchups)
         run: ./scripts/test anchors
 
+      # `generic/platform=iOS Simulator` for the two build-only steps: they need the SDK,
+      # not a device, and naming one is how this workflow broke. The device that does get
+      # named — by `scripts/test`, for the test step below — is resolved from what is
+      # actually installed.
       - name: Build
         run: |
           xcodebuild \
             -project PokerAssistant.xcodeproj \
             -scheme PokerAssistant \
-            -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+            -destination 'generic/platform=iOS Simulator' \
             -configuration Debug \
             build
 
       # The engine's whole value is correct probabilities. These are the tests that
       # would have caught the evaluator, sampling and routing defects.
+      # Through the script rather than around it, so CI and the developer's fast loop
+      # cannot drift: `scripts/test` already resolves a destination from the simulators
+      # that exist, which is the whole reason it stopped hard-coding a device name.
       - name: Test
-        run: |
-          xcodebuild \
-            -project PokerAssistant.xcodeproj \
-            -scheme PokerAssistant \
-            -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
-            -only-testing:PokerAssistantTests \
-            test
+        run: ./scripts/test app
 
       - name: Release build
         run: |
           xcodebuild \
             -project PokerAssistant.xcodeproj \
             -scheme PokerAssistant \
-            -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+            -destination 'generic/platform=iOS Simulator' \
             -configuration Release \
             build
