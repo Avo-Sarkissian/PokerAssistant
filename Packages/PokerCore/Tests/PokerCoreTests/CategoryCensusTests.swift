@@ -50,11 +50,13 @@ struct CategoryCensusTests {
     /// C(52,7).
     static let totalHands = 133_784_560
 
-    /// Set `POKER_CENSUS=1` to run the exhaustive pass. It is ~26s in release and ~7
-    /// minutes in debug, which is why it is not in the fast loop: `./scripts/test census`
-    /// builds release and sets this.
+    /// Set `POKER_EXTERNAL_ANCHORS=1` to run the exhaustive pass. It is ~21s in release
+    /// and ~7 minutes in debug, which is why it is not in the fast loop:
+    /// `./scripts/test anchors` builds release and sets this. The same gate covers the
+    /// exhaustive head-to-head matchups in `PublishedEquityTests`, because they are the
+    /// same kind of thing bought at the same kind of price.
     static var exhaustiveEnabled: Bool {
-        ProcessInfo.processInfo.environment["POKER_CENSUS"] == "1"
+        ProcessInfo.processInfo.environment["POKER_EXTERNAL_ANCHORS"] == "1"
     }
 
     // MARK: - The reference table checks itself
@@ -73,7 +75,7 @@ struct CategoryCensusTests {
 
     @Test("Every C(52,7) hand lands in its published category",
           .enabled(if: CategoryCensusTests.exhaustiveEnabled,
-                   "set POKER_CENSUS=1 (see ./scripts/test census)"),
+                   "set POKER_EXTERNAL_ANCHORS=1 (see ./scripts/test anchors)"),
           .timeLimit(.minutes(30)))
     func exhaustiveCensusMatchesPublishedCounts() {
         let counts = Self.exhaustiveCensus()

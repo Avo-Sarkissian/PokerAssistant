@@ -121,3 +121,87 @@ struct StartingHandRankingTests {
         #expect(OpponentRange.isHandInRange(card("Js"), card("Ts"), range: .standard))
     }
 }
+
+// MARK: - Showdowns over a shared board
+
+/// Every other evaluator test in this file compares two hands drawn from *different*
+/// decks — `fastHandEvaluatorMatchesReference` deals `deck[0..<7]` against
+/// `deck[7..<14]`, which is not a showdown anyone has ever played. Real opponents share
+/// five community cards, and that is exactly the case where the low kickers decide:
+/// both players are mostly playing the board, so their best fives agree down to the last
+/// card or two.
+///
+/// The gap that showed: dropping the fifth card from `top5Value` — one character, `n == 5`
+/// to `n == 4` — left every one of the 144 tests on this branch green, *including* the
+/// exhaustive C(52,7) census and the published head-to-head matchups. It has to: the
+/// category counts do not move, because a hand is still a flush or still a high card, and
+/// hand-versus-hand equities barely move, because it takes a shared board to make two
+/// players' top four cards agree. What it breaks is a real pot — board A♠K♦Q♥J♣5♠, one
+/// player holding a nine and the other an eight, chopped instead of won.
+@Suite("Showdowns over a shared board")
+struct SharedBoardShowdownTests {
+
+    /// The rules of poker, not this repository's encoding of them: five cards play, and
+    /// the fifth is as binding as the first.
+    @Test("The fifth card decides",
+          arguments: [
+            (board: "As Kd Qh Jc 5s", winner: "9d 3c", loser: "8d 2c",
+             what: "high card, A-K-Q-J and the kicker"),
+            (board: "As Ks Qs Js 7d", winner: "9s 3c", loser: "8s 2c",
+             what: "flush, A-K-Q-J and the fifth spade"),
+            (board: "As Kd 9h 5c 2d", winner: "Ac 7s", loser: "Ad 6s",
+             what: "one pair, aces with K-9 and the third kicker"),
+          ])
+    func theFifthCardDecides(board: String, winner: String, loser: String, what: String) {
+        let evaluator = FastHandEvaluator()
+        let community = cards(board)
+        let won = evaluator.evaluate(cards(winner) + community)
+        let lost = evaluator.evaluate(cards(loser) + community)
+
+        #expect(won > lost, Comment(rawValue: "\(what): \(winner) scored \(won), "
+                                    + "\(loser) scored \(lost) on \(board)"))
+
+        // Stated separately because a broken encoding usually produces a tie rather than
+        // an inversion, and `won > lost` failing tells you which only if you go looking.
+        #expect(won != lost, Comment(rawValue: "\(what): chopped a pot the winner won"))
+    }
+
+    /// The general net: deal a real showdown — five shared community cards and two hole
+    /// cards each — and require the production evaluator to order it exactly as the
+    /// independent oracle does. Seeded, so a disagreement can be reproduced.
+    @Test("The evaluator orders real showdowns exactly like the reference")
+    func sharedBoardShowdownsMatchTheReference() {
+        let evaluator = FastHandEvaluator()
+        var rng = SeededGenerator(seed: 0x5B0A_4D50)
+        var deck = Card.deck()
+        var disagreements: [String] = []
+
+        for _ in 0..<6_000 {
+            for i in 0..<9 {
+                deck.swapAt(i, Int.random(in: i..<52, using: &rng))
+            }
+            let board = Array(deck[4..<9])
+            let hero = Array(deck[0..<2]) + board
+            let villain = Array(deck[2..<4]) + board
+
+            let fastHero = evaluator.evaluate(hero)
+            let fastVillain = evaluator.evaluate(villain)
+            let referenceHero = ReferenceEvaluator.evaluate7(hero)
+            let referenceVillain = ReferenceEvaluator.evaluate7(villain)
+
+            let fastOrder = fastHero == fastVillain ? 0 : (fastHero > fastVillain ? 1 : -1)
+            let referenceOrder = referenceHero == referenceVillain
+                ? 0 : (referenceHero > referenceVillain ? 1 : -1)
+
+            if fastOrder != referenceOrder, disagreements.count < 5 {
+                disagreements.append(
+                    "\(hero.map(\.displayString).joined(separator: " ")) vs "
+                    + "\(villain.map(\.displayString).joined(separator: " ")): "
+                    + "evaluator says \(fastOrder), reference says \(referenceOrder)")
+            }
+        }
+
+        #expect(disagreements.isEmpty,
+                Comment(rawValue: disagreements.joined(separator: "\n")))
+    }
+}

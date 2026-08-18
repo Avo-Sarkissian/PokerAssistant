@@ -14,12 +14,14 @@
 # Usage:  ./scripts/test            both suites
 #         ./scripts/test core       the engine only (fast: no simulator)
 #         ./scripts/test app        the simulator-bound tests only
-#         ./scripts/test census     the exhaustive C(52,7) category census
+#         ./scripts/test anchors    the exhaustive external anchors
 #
-# `census` is deliberately not part of `all`. It deals all 133,784,560 seven-card hands
-# and compares the nine category totals with the published frequencies — the one check
-# here against numbers this repository did not produce. It costs ~25s in release and
-# ~7 minutes in debug, so it builds release and runs on demand, not in the fast loop.
+# `anchors` is deliberately not part of `all`. It is every check here against numbers
+# this repository did not produce that is too expensive to run on every edit: the
+# C(52,7) category census, and the classic hand-versus-hand matchups enumerated over all
+# 1,712,304 boards. Together ~55s in release and sixteen times that in debug, so it
+# builds release and runs on demand. Both leave a cheap sampled or theorem-shaped
+# version behind in the fast loop; neither is the proof.
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -67,10 +69,10 @@ run_core() {
     swift test --package-path Packages/PokerCore
 }
 
-run_census() {
-    echo "==> Seven-card category census (release, no simulator)"
-    POKER_CENSUS=1 swift test -c release --package-path Packages/PokerCore \
-        --filter CategoryCensusTests
+run_anchors() {
+    echo "==> External anchors: category census and head-to-head matchups (release, no simulator)"
+    POKER_EXTERNAL_ANCHORS=1 swift test -c release --package-path Packages/PokerCore \
+        --filter 'CategoryCensusTests|PublishedMatchupTests'
 }
 
 run_app() {
@@ -89,11 +91,13 @@ run_app() {
 }
 
 case "$WHICH" in
-    core)   run_core ;;
-    app)    run_app ;;
-    census) run_census ;;
-    all)    run_core; run_app ;;
-    *)      echo "usage: $0 [all|core|app|census]" >&2; exit 2 ;;
+    core)    run_core ;;
+    app)     run_app ;;
+    # `census` kept as an alias: it was the name for one commit, and the anchors pass is
+    # a superset of what it ran.
+    anchors|census) run_anchors ;;
+    all)     run_core; run_app ;;
+    *)       echo "usage: $0 [all|core|app|anchors]" >&2; exit 2 ;;
 esac
 
 echo "==> all requested suites passed"
