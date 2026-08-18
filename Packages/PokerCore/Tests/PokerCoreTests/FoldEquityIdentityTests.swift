@@ -438,8 +438,7 @@ struct FoldEquityIdentityTests {
     /// over this whole sweep. The 0.85 ceiling does eventually let α catch up — around a
     /// 5.7-pot bet for `.random` — but that is far outside anything the solver can size to,
     /// and allowing a flip the sweep cannot reach would only be slack.
-    @Test("Bluff profitability does not flip back and forth as the bet grows",
-          )
+    @Test("Bluff profitability does not flip back and forth as the bet grows")
     func bluffProfitabilityIsMonotoneInBetSize() {
         for range in Self.allRanges {
             var flips: [String] = []

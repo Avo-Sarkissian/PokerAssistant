@@ -191,6 +191,13 @@ sessions, on one machine.
   is keyed on (hand, opponents, range) and lives in `UserDefaults` forever. Feeding it an
   equity computed with dead cards poisons that hand for every future session. The same
   trap has now fired twice from opposite directions; check the key before adding a writer.
+- **The local toolchain is ahead of CI's, so a green `./scripts/test` is not a green
+  build.** This machine runs Swift 6.3.3; CI selects `Xcode_16.app`, which is Swift 6.0.
+  Trailing commas in argument lists (SE-0439) are the concrete gap that has already bitten:
+  `@Test("…",\n)` compiles locally and is a syntax error on CI, so a branch that passed
+  every suite here failed CI at the first step. Anything newer than Swift 6.0 syntax will
+  do the same. Either keep to 6.0 syntax or move CI's Xcode deliberately — but know that
+  the local suite cannot tell you.
 - **A fingerprint is an input list.** `GameViewModel.getCurrentStateString` decides whether
   Calculate does anything. Anything new that reaches the solver has to be added to it in
   the same commit, or the setting works and the button does not.
