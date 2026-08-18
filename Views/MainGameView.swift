@@ -719,6 +719,7 @@ struct PotInfoViewEnhanced: View {
                                 : (heroSeat == .bb ? settings.bigBlind : 0)
                             commit(PotEntry.preflop(preset,
                                                     heroPosition: heroSeat,
+                                                    tableSize: settings.numberOfPlayers,
                                                     smallBlind: settings.smallBlind,
                                                     bigBlind: settings.bigBlind),
                                    heroWager: max(preset.heroPriorWager * settings.bigBlind,

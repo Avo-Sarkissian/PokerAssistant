@@ -104,8 +104,8 @@ struct RangeInferenceTests {
     @Test("The preflop read does not change with the stake")
     func preflopReadIsScaleFree() {
         for preset in PreflopPreset.allCases {
-            let low = PotEntry.preflop(preset, heroPosition: .btn, smallBlind: 0.5, bigBlind: 1.0)
-            let high = PotEntry.preflop(preset, heroPosition: .btn, smallBlind: 2.5, bigBlind: 5.0)
+            let low = PotEntry.preflop(preset, heroPosition: .btn, tableSize: 6, smallBlind: 0.5, bigBlind: 1.0)
+            let high = PotEntry.preflop(preset, heroPosition: .btn, tableSize: 6, smallBlind: 2.5, bigBlind: 5.0)
 
             let atOne = OpponentRange.preflopRange(villainWagerInBigBlinds: low.toCall / 1.0)
             let atFive = OpponentRange.preflopRange(villainWagerInBigBlinds: high.toCall / 5.0)

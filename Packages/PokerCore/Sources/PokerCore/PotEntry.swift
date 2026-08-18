@@ -112,15 +112,39 @@ public struct PotEntry: Equatable, Sendable {
 
     /// The standard preflop lines, in big blinds.
     ///
-    /// `villain` is the raiser's total street contribution; `heroAlreadyIn` is what
-    /// hero has already committed (a posted blind and/or an earlier raise), and
-    /// `deadMoney` is what folded players left behind. Then
+    /// `villain` is the raiser's total street contribution — a raise is *to* an amount, so
+    /// it already absorbs any blind villain had posted. That is where this used to go
+    /// wrong: dead money was "the blinds hero did not post", which counts villain's own
+    /// blind a second time whenever villain is a blind. Two-handed that is every spot,
+    /// because two-handed both players are blinds and nothing is dead. The button facing a
+    /// big-blind raise — *the* heads-up spot — built a 4.0 pot where the truth is 3.0, and
+    /// priced the call at 33.3% where hero actually needs 40.0%.
+    ///
+    ///   dead money = both blinds − hero's blind − villain's blind
     ///   pot before villain's bet = heroAlreadyIn + deadMoney + (villain − toCall)
-    ///   toCall                    = villain − heroAlreadyIn
+    ///   toCall = villain − heroAlreadyIn
+    ///
+    /// `tableSize` is how villain's blind gets settled: two-handed it is known exactly,
+    /// because villain holds whichever blind hero does not. Larger tables cannot know it
+    /// without villain's seat, which the app does not track, so `assumedVillainBlind`
+    /// carries the assumption in the open rather than hiding it in an arithmetic branch.
+    public static func preflop(_ preset: PreflopPreset,
+                               heroPosition: Position,
+                               tableSize: Int,
+                               smallBlind: Double,
+                               bigBlind: Double) -> PotEntry {
+        preflop(preset, heroPosition: heroPosition, smallBlind: smallBlind, bigBlind: bigBlind,
+                villainBlind: assumedVillainBlind(preset, heroPosition: heroPosition,
+                                                  tableSize: tableSize,
+                                                  smallBlind: smallBlind, bigBlind: bigBlind))
+    }
+
+    /// The same lines with villain's posted blind supplied rather than assumed.
     public static func preflop(_ preset: PreflopPreset,
                                heroPosition: Position,
                                smallBlind: Double,
-                               bigBlind: Double) -> PotEntry {
+                               bigBlind: Double,
+                               villainBlind: Double) -> PotEntry {
 
         let heroBlind: Double
         switch heroPosition {
@@ -132,20 +156,48 @@ public struct PotEntry: Equatable, Sendable {
         let villain = preset.villainWager * bigBlind
         let heroAlreadyIn = max(preset.heroPriorWager * bigBlind, heroBlind)
 
-        let deadMoney: Double
-        switch preset {
-        case .limp, .open, .fourBet:
-            // Both blinds are live; the ones hero did not post are dead money.
-            deadMoney = (smallBlind + bigBlind) - heroBlind
-        case .threeBet:
-            // Hero opened, so only a blind can re-raise. From the small blind the
-            // villain can only be the big blind and nothing else is left in the
-            // middle — the one line in the grid with no dead money at all.
-            deadMoney = heroPosition == .sb ? 0 : smallBlind
-        }
+        // What is left in the middle that belongs to neither of them. Clamped because a
+        // caller may hand over a blind hero also claims — the answer is then "nothing
+        // dead", not "negative money".
+        let deadMoney = max(0, (smallBlind + bigBlind) - heroBlind - villainBlind)
 
         let toCall = max(0, villain - heroAlreadyIn)
         let total = villain + heroAlreadyIn + deadMoney
         return PotEntry(potBeforeBet: total - toCall, toCall: toCall)
+    }
+
+    /// What villain most likely had posted as a blind before acting.
+    ///
+    /// Two-handed this is not a guess: both players are blinds and villain holds the one
+    /// hero does not. Any larger table needs villain's seat, which the app does not ask
+    /// for, so the rest is the assumption the presets have always made, written down:
+    ///
+    /// - A limp, an open or a four-bet comes from someone who posted nothing. Openers are
+    ///   usually not blinds, and a four-bet is the original raiser coming back over the top.
+    /// - A three-bet is a re-raise over hero's open, so it comes from a player still to act
+    ///   — which after an open means a blind, and the big blind more often than the small.
+    ///
+    /// Where hero *is* the big blind that last assumption is wrong, since villain can only
+    /// hold the small one — but the answer is not, and there is deliberately no branch for
+    /// it. Hero's own big blind already accounts for more than the pair of blinds leaves
+    /// behind, so the dead-money clamp lands on zero whichever blind villain is assumed to
+    /// hold. A branch was written for that case first; mutation testing showed no input
+    /// could tell the two apart, so it went.
+    ///
+    /// Where it is wrong it is wrong by one blind, and the pot fields stay editable.
+    public static func assumedVillainBlind(_ preset: PreflopPreset,
+                                           heroPosition: Position,
+                                           tableSize: Int,
+                                           smallBlind: Double,
+                                           bigBlind: Double) -> Double {
+        if tableSize <= 2 {
+            return heroPosition == .sb ? bigBlind : smallBlind
+        }
+        switch preset {
+        case .limp, .open, .fourBet:
+            return 0
+        case .threeBet:
+            return bigBlind
+        }
     }
 }

@@ -85,6 +85,11 @@ struct PreflopPresetTests {
     /// Independently derived and cross-checked: pot and cost-to-call in big blinds
     /// for each preset and hero seat, with the required equity each implies.
     /// The BB-versus-2.5x-open cell at 27.3% is the textbook defence price.
+    ///
+    /// Six-handed throughout, which is the app's default and the size these were derived
+    /// at. The three-bet-from-the-big-blind cell moved from 12.0 to 11.5 when villain's
+    /// own blind stopped being counted as dead money: hero holds the big blind, so the
+    /// three-bettor can only hold the small one, and it is already inside their 9bb.
     @Test("Presets reproduce the derived pot odds",
           arguments: [
             (PreflopPreset.limp,     Position.btn, 2.5,  1.0,  0.2857),
@@ -95,14 +100,14 @@ struct PreflopPresetTests {
             (PreflopPreset.open,     Position.bb,  4.0,  1.5,  0.2727),
             (PreflopPreset.threeBet, Position.btn, 12.0, 6.5,  0.3514),
             (PreflopPreset.threeBet, Position.sb,  11.5, 6.5,  0.3611),
-            (PreflopPreset.threeBet, Position.bb,  12.0, 6.5,  0.3514),
+            (PreflopPreset.threeBet, Position.bb,  11.5, 6.5,  0.3611),
             (PreflopPreset.fourBet,  Position.btn, 35.5, 16.0, 0.3107),
             (PreflopPreset.fourBet,  Position.sb,  35.0, 16.0, 0.3140),
             (PreflopPreset.fourBet,  Position.bb,  34.5, 16.0, 0.3171),
           ])
     func presetPotOdds(preset: PreflopPreset, position: Position,
                        expectedTotal: Double, expectedCall: Double, expectedEquity: Double) {
-        let entry = PotEntry.preflop(preset, heroPosition: position,
+        let entry = PotEntry.preflop(preset, heroPosition: position, tableSize: 6,
                                      smallBlind: 0.5, bigBlind: 1.0)
 
         #expect(abs(entry.totalPot - expectedTotal) < 1e-9,
@@ -119,7 +124,7 @@ struct PreflopPresetTests {
     func noPresetDemandsFiftyPercent() {
         for preset in PreflopPreset.allCases {
             for position in Position.allCases {
-                let entry = PotEntry.preflop(preset, heroPosition: position,
+                let entry = PotEntry.preflop(preset, heroPosition: position, tableSize: 6,
                                              smallBlind: 0.5, bigBlind: 1.0)
                 #expect(abs(entry.requiredEquity - 0.5) > 0.01,
                         "\(preset.rawValue)/\(position.rawValue) needs \(entry.requiredEquity)")
@@ -129,8 +134,8 @@ struct PreflopPresetTests {
 
     @Test("Presets scale with the blind level")
     func presetsScaleWithBlinds() {
-        let atOne = PotEntry.preflop(.open, heroPosition: .bb, smallBlind: 0.5, bigBlind: 1.0)
-        let atFive = PotEntry.preflop(.open, heroPosition: .bb, smallBlind: 2.5, bigBlind: 5.0)
+        let atOne = PotEntry.preflop(.open, heroPosition: .bb, tableSize: 6, smallBlind: 0.5, bigBlind: 1.0)
+        let atFive = PotEntry.preflop(.open, heroPosition: .bb, tableSize: 6, smallBlind: 2.5, bigBlind: 5.0)
 
         #expect(abs(atFive.totalPot - atOne.totalPot * 5) < 1e-9)
         #expect(abs(atFive.toCall - atOne.toCall * 5) < 1e-9)
@@ -179,5 +184,102 @@ struct BlindChangeTests {
         let seeded = 0.5 + 1.0
         let change = BlindChange(previousBlindTotal: 1.50, newBlindTotal: 3.00)
         #expect(change.reseededPot(currentPot: seeded) == 3.00)
+    }
+}
+
+// MARK: - Villain's own blind is not dead money
+
+/// The preflop presets built the pot as hero's contribution, plus villain's, plus "the
+/// blinds hero did not post" as dead money. When villain *is* one of the blinds, that last
+/// term counts villain's blind twice: villain's total street contribution already absorbed
+/// it, because a raise is *to* an amount and not on top of one.
+///
+/// Two-handed it is wrong in every spot, because two-handed both players are blinds and
+/// there is no dead money at all. The button facing a big-blind raise is the heads-up spot,
+/// and it is the one the app got most wrong.
+@Suite("Preflop presets when villain is a blind")
+struct VillainBlindTests {
+
+    private let sb = 0.5, bb = 1.0
+
+    /// Hero on the button — which two-handed is the small blind — facing a raise to 2.5bb.
+    /// Hero has 0.5 in, villain has 2.5 in, so the pot is 3.0 and hero calls 2.0.
+    /// It computed 4.0, which prices the call at 33.3% where the truth is 40.0%.
+    @Test("Heads-up: the button facing a big-blind open")
+    func headsUpButtonFacingAnOpen() {
+        let entry = PotEntry.preflop(.open, heroPosition: .sb, tableSize: 2,
+                                     smallBlind: sb, bigBlind: bb)
+
+        #expect(entry.totalPot == 3.0, Comment(rawValue: "pot \(entry.totalPot)"))
+        #expect(entry.toCall == 2.0, Comment(rawValue: "to call \(entry.toCall)"))
+        #expect(abs(entry.requiredEquity - 0.40) < 1e-9,
+                Comment(rawValue: "needs \(entry.requiredEquity * 100)% to call"))
+    }
+
+    /// The other seat, and the same error: hero in the big blind facing a small-blind
+    /// raise to 2.5bb. Hero has 1.0 in, villain 2.5, so the pot is 3.5 and hero calls 1.5.
+    @Test("Heads-up: the big blind facing a small-blind open")
+    func headsUpBigBlindFacingAnOpen() {
+        let entry = PotEntry.preflop(.open, heroPosition: .bb, tableSize: 2,
+                                     smallBlind: sb, bigBlind: bb)
+
+        #expect(entry.totalPot == 3.5, Comment(rawValue: "pot \(entry.totalPot)"))
+        #expect(entry.toCall == 1.5, Comment(rawValue: "to call \(entry.toCall)"))
+    }
+
+    /// A two-handed limp is the small blind completing, so nothing is in the middle but
+    /// the two blinds.
+    @Test("Heads-up: a limped pot is just the blinds")
+    func headsUpLimpIsJustTheBlinds() {
+        let entry = PotEntry.preflop(.limp, heroPosition: .sb, tableSize: 2,
+                                     smallBlind: sb, bigBlind: bb)
+
+        #expect(entry.totalPot == 1.5, Comment(rawValue: "pot \(entry.totalPot)"))
+        #expect(entry.toCall == 0.5, Comment(rawValue: "to call \(entry.toCall)"))
+    }
+
+    /// Six-handed with villain in a non-blind seat is the case the presets were written
+    /// for, and it must not move: both blinds really are dead money there.
+    @Test("Six-handed: a button facing a late-position open is unchanged")
+    func sixHandedButtonFacingAnOpen() {
+        let entry = PotEntry.preflop(.open, heroPosition: .btn, tableSize: 6,
+                                     smallBlind: sb, bigBlind: bb)
+
+        #expect(entry.totalPot == 4.0, Comment(rawValue: "pot \(entry.totalPot)"))
+        #expect(entry.toCall == 2.5, Comment(rawValue: "to call \(entry.toCall)"))
+    }
+
+    /// Hero opened from the big blind and villain three-bet. Villain cannot be the big
+    /// blind — hero is — so the only blind villain can hold is the small one, and it is
+    /// already inside their 9bb. Nothing is dead. The old special case assumed the
+    /// three-bettor always held the big blind and left 0.5 in the middle that belonged to
+    /// nobody.
+    @Test("A three-bet never counts hero's own blind as villain's")
+    func threeBetFromTheBigBlind() {
+        let entry = PotEntry.preflop(.threeBet, heroPosition: .bb, tableSize: 6,
+                                     smallBlind: sb, bigBlind: bb)
+
+        // hero 2.5 in from the open, villain 9.0.
+        #expect(entry.totalPot == 11.5, Comment(rawValue: "pot \(entry.totalPot)"))
+        #expect(entry.toCall == 6.5, Comment(rawValue: "to call \(entry.toCall)"))
+    }
+
+    /// Whatever else changes, no preset may put more in the middle than the players
+    /// actually committed. This is the invariant the double-count broke.
+    @Test("No preset invents money",
+          arguments: [PreflopPreset.limp, .open, .threeBet, .fourBet],
+          [2, 6, 9])
+    func noPresetInventsMoney(preset: PreflopPreset, tableSize: Int) {
+        for hero in Position.seats(tableSize: tableSize) {
+            let entry = PotEntry.preflop(preset, heroPosition: hero, tableSize: tableSize,
+                                         smallBlind: sb, bigBlind: bb)
+            let heroIn = max(preset.heroPriorWager * bb,
+                             hero == .sb ? sb : (hero == .bb ? bb : 0))
+            let mostThatCanBeInThere = preset.villainWager * bb + heroIn + sb + bb
+            #expect(entry.totalPot <= mostThatCanBeInThere + 1e-9,
+                    Comment(rawValue: "\(preset) from \(hero) \(tableSize)-handed builds a "
+                            + "\(entry.totalPot) pot from at most \(mostThatCanBeInThere)"))
+            #expect(entry.potBeforeBet >= -1e-9)
+        }
     }
 }
