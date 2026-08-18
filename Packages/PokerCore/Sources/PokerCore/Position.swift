@@ -135,11 +135,20 @@ public enum Position: String, CaseIterable, Codable, Sendable, Hashable, Identif
     /// answer each time. Relative position among the live players is not derivable from a
     /// seat and a headcount, so the model does not pretend to it.
     ///
-    /// The term itself is still suspect and is on the list for the validation harness:
-    /// villain cannot see hero's cards, so hero's *hand* should not move villain's fold
-    /// rate at all, and villain can see hero's *seat* — which argues the sign is backwards,
-    /// since a late-position bettor is credited with a wider range and called looser.
-    public static func bluffFrequencyMultiplier(actingLast: Bool) -> Double {
+    /// It was called `bluffFrequencyMultiplier` and was applied only when hero held a hand
+    /// graded `.bluff` or `.weak`, which made villain's folding a function of hero's hole
+    /// cards — information villain does not have. It now applies to every hand, because
+    /// what it models is a fact about the *seat*: villain is choosing whether to continue
+    /// out of position for the rest of the hand, and that is true whatever hero holds.
+    ///
+    /// **The two numbers are still hand-authored and still unproven.** The handoff argued
+    /// the sign is backwards, on the grounds that a late-position bettor is credited with a
+    /// wider range and therefore called looser. The opposite argument is at least as
+    /// standard — villain defends less against a bettor who will act after them on every
+    /// later street — and this repository has measured neither. So the sign is left where
+    /// it was, and it is left flagged: unlike the fold-equity table this term has no
+    /// theorem to anchor it to, only data nobody has collected.
+    public static func foldFrequencyMultiplier(actingLast: Bool) -> Double {
         actingLast ? 1.3 : 0.6
     }
 

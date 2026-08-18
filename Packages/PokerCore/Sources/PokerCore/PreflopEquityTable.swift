@@ -1,13 +1,21 @@
 import Foundation
 
-/// Lazy-build preflop equity cache.
+/// Preflop equity cache, keyed on the suit-normalised hand.
 ///
-/// On first request for a (handType, opponents, range) triple it runs a short
-/// Monte Carlo simulation (200K iterations) and stores the result in UserDefaults.
-/// Subsequent requests return the cached value instantly.
+/// **It is a cache and nothing else.** It used to compute its own misses, running a short
+/// simulation and returning that — which meant the caller's fall-through was dead code and
+/// the app's Calculation Depth setting never reached a preflop spot. Populating it is now
+/// the caller's job, so the depth the user asked for is the depth that gets cached.
 ///
-/// Key format:  "PreflopEq_\(handKey)_\(opponents)_\(range)"
-/// Example key: "PreflopEq_AsKs_1_standard"
+/// A stored value is permanent until the schema version changes, so whoever calls `store`
+/// owes it enough samples to be worth freezing — `EquityCalculator` holds a floor for
+/// exactly that reason. Note the shape of the trap it is guarding: `MonteCarloEngine`
+/// stops at its first 50,000-hand batch for any confidence threshold at or above 0.0022,
+/// because that is the standard error a 50,000 sample reaches at p ≈ 0.5. This table asked
+/// for 200,000 at a threshold of 0.005 and got 50,000, then cached it forever.
+///
+/// Key format:  "PreflopEq_v4_\(handKey)_\(opponents)_\(range)"
+/// Example key: "PreflopEq_v4_AKs_1_s"
 public final class PreflopEquityTable {
 
     public static let shared = PreflopEquityTable()
@@ -50,35 +58,17 @@ public final class PreflopEquityTable {
         return stored
     }
 
-    /// Checks the cache; if missing, runs a fast MC simulation and caches the result.
-    public func equity(hand: Hand, opponents: Int, range: OpponentRange.RangeType) async -> Double? {
-        if let cached = cachedEquity(hand: hand, opponents: opponents, range: range) { return cached }
-        guard let key = cacheKey(hand: hand, opponents: opponents, range: range) else { return nil }
-
-        // 200K iterations, and it has to actually run them. With the old 0.005 threshold
-        // the engine stopped after the very first 50K batch — standard error at p≈0.5 and
-        // n=50,000 is 0.0022, already under it — so every cached preflop equity was a 50K
-        // sample carrying ~0.22 points of error, written to UserDefaults and never
-        // recomputed. 0.001 sits just under the 0.00112 that 200K reaches, so the run
-        // completes; the schema bump above discards the coarser values already stored.
-        let equity = await engine.simulate(
-            hand: hand,
-            opponents: opponents,
-            deadCards: [],
-            iterations: 200_000,
-            opponentRange: range,
-            confidenceThreshold: 0.001,
-            maxTimeSeconds: 3.0
-        )
-
-        guard equity > 0.001 else { return nil }
-
+    /// Remember an equity computed elsewhere.
+    ///
+    /// Silently ignores hands it cannot key — anything with community cards, or a hand
+    /// that is not exactly two cards — so a caller cannot accidentally file a flop under a
+    /// preflop key.
+    public func store(hand: Hand, opponents: Int, range: OpponentRange.RangeType, equity: Double) {
+        guard equity > 0.001, let key = cacheKey(hand: hand, opponents: opponents, range: range) else { return }
         lock.lock()
         memCache[key] = equity
         lock.unlock()
         defaults.set(equity, forKey: prefix + key)
-
-        return equity
     }
 
     // MARK: – Helpers

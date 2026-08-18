@@ -7,7 +7,7 @@ import PokerTestSupport
 
 /// Backlog #28 claimed the solver's bluff branch was dead code: a
 /// fold-below-pot-odds guard ran before the raise was ever priced, so a hand graded
-/// `.bluff` could never be told to raise and `bluffFrequencyMultiplier` could never
+/// `.bluff` could never be told to raise and the seat's fold-frequency term could never
 /// affect an answer the user saw.
 ///
 /// `makeDecision` was rewritten to a plain EV argmax in `bd2bedf`, which removed that

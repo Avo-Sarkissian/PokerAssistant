@@ -41,7 +41,7 @@ struct FoldEquityIdentityTests {
 
     /// The fold frequency the model credits for this spot, reassembled from its parts.
     ///
-    /// Deliberately built from `foldEquityForRange` and `bluffFrequencyMultiplier`
+    /// Deliberately built from `foldEquityForRange` and `foldFrequencyMultiplier`
     /// rather than from a number written here: the identity being tested is a
     /// relationship between whatever the model credits and α, so re-calibrating the
     /// table must leave these tests passing. What must never change is that the EV
@@ -52,7 +52,7 @@ struct FoldEquityIdentityTests {
                                    actsLast: Bool) -> Double {
         let base = ExploitativeSolver.foldEquityForRange(
             range, betSizeRelativeToPot: bet / max(pot, 1))
-        let premium = base * Position.bluffFrequencyMultiplier(actingLast: actsLast)
+        let premium = base * Position.foldFrequencyMultiplier(actingLast: actsLast)
         return min(max(premium, 0), 0.80)
     }
 
@@ -67,7 +67,7 @@ struct FoldEquityIdentityTests {
                                             actsLast: Bool) -> Bool {
         let uncapped = ExploitativeSolver.foldEquityForRange(
             range, betSizeRelativeToPot: bet / max(pot, 1))
-            * Position.bluffFrequencyMultiplier(actingLast: actsLast)
+            * Position.foldFrequencyMultiplier(actingLast: actsLast)
         return uncapped > 0.80
     }
 

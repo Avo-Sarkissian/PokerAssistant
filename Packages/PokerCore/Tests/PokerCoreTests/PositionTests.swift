@@ -163,8 +163,8 @@ struct PostflopPositionTests {
     /// `GameStateCopy.heroActsLast`.
     @Test("The bluff premium is 1.3 acting last and 0.6 otherwise")
     func bluffPremiumIsTwoValued() {
-        #expect(abs(Position.bluffFrequencyMultiplier(actingLast: true) - 1.3) < 1e-9)
-        #expect(abs(Position.bluffFrequencyMultiplier(actingLast: false) - 0.6) < 1e-9)
+        #expect(abs(Position.foldFrequencyMultiplier(actingLast: true) - 1.3) < 1e-9)
+        #expect(abs(Position.foldFrequencyMultiplier(actingLast: false) - 0.6) < 1e-9)
     }
 
     /// And the seat-derived default, which is what the app seeds the control with: exactly

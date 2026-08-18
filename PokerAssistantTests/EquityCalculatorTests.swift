@@ -112,3 +112,89 @@ struct EquityCalculatorValidationTests {
         #expect(equity > 0.5, "aces on a dry river should be well ahead, got \(equity)")
     }
 }
+
+// MARK: - The preflop cache and the routing behind it
+
+/// Saves and restores every preflop-cache key, so these tests can force a miss without
+/// leaving the shipping app's cache emptied. The app test host shares one `UserDefaults`
+/// with the app itself — see `DefaultsSnapshot` in `GameStateTests` for the same problem
+/// with blind levels.
+struct PreflopCacheSnapshot {
+    private let saved: [(String, Any?)]
+
+    init() {
+        let keys = UserDefaults.standard.dictionaryRepresentation().keys
+            .filter { $0.hasPrefix("PreflopEq_") }
+        saved = keys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
+        for key in keys { UserDefaults.standard.removeObject(forKey: key) }
+    }
+
+    func restore() {
+        for (key, value) in saved {
+            if let value { UserDefaults.standard.set(value, forKey: key) }
+        }
+    }
+}
+
+/// `PreflopEquityTable` used to compute its own misses and return the result, so the
+/// fall-through beneath it in `EquityCalculator` was unreachable and the Calculation Depth
+/// setting never applied to a preflop spot. The table is now a cache and the calculator
+/// fills it.
+@Suite("Preflop routing", .serialized, .timeLimit(.minutes(5)))
+struct PreflopRoutingTests {
+
+    /// If the calculator did not write the number it computed, nothing would: the table no
+    /// longer populates itself, so a missing `store` means every preflop request is a full
+    /// simulation forever.
+    @Test("A preflop calculation caches the number it returned")
+    func preflopCalculationPopulatesTheCache() async {
+        let snapshot = PreflopCacheSnapshot()
+        defer { snapshot.restore() }
+
+        let hand = Hand(holeCards: cards("9d 3c"), communityCards: [])
+        let calculator = EquityCalculator()
+        let equity = await calculator.calculateDeep(
+            hand: hand, opponents: 3, deadCards: [],
+            iterations: 200_000, confidenceThreshold: 0.005, opponentRange: .veryWide)
+
+        #expect(equity > 0.01, Comment(rawValue: "93o against three opponents priced at \(equity)"))
+
+        let cached = PreflopEquityTable.shared.cachedEquity(
+            hand: hand, opponents: 3, range: .veryWide)
+        #expect(cached == equity,
+                Comment(rawValue: "the calculator returned \(equity) and the cache holds "
+                        + "\(String(describing: cached))"))
+    }
+
+    /// The routing fix this test exists for: the GPU kernel has no range filter, so a
+    /// range-conditioned request must not reach it. That condition used to also require a
+    /// single opponent, which was invisible only because the table absorbed every multiway
+    /// preflop request before the routing ran. With the fall-through live it would have
+    /// sent this spot to a kernel that ignores the range and answered a different
+    /// question — the same answer for both ranges below.
+    ///
+    /// KJo rather than a premium hand, for the reason `tighterRangeLowersEquity` gives:
+    /// aces are the one holding a tight range helps.
+    @Test("A ranged multiway preflop spot is not answered by the GPU")
+    func preflopMultiwayHonoursTheRange() async {
+        let snapshot = PreflopCacheSnapshot()
+        defer { snapshot.restore() }
+
+        let hand = Hand(holeCards: cards("Kd Jc"), communityCards: [])
+        let calculator = EquityCalculator()
+
+        func equity(range: OpponentRange.RangeType) async -> Double {
+            await calculator.calculateDeep(
+                hand: hand, opponents: 2, deadCards: [],
+                iterations: 200_000, confidenceThreshold: 0.005, opponentRange: range)
+        }
+
+        let againstAnything = await equity(range: .random)
+        let againstPremiums = await equity(range: .veryTight)
+
+        #expect(againstPremiums < againstAnything - 0.05,
+                Comment(rawValue: "KJo reads \(againstPremiums) against two premium ranges "
+                        + "and \(againstAnything) against two random hands — the range was "
+                        + "discarded"))
+    }
+}

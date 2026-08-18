@@ -149,6 +149,23 @@ public struct OpponentRange {
     ///
     /// The boundaries are the standard lines rather than tuned values: a limp is one
     /// blind, opens run 2–4bb, 3-bets 6–12bb, 4-bets 20bb and up.
+    ///
+    /// **They are absolute, and they are calibrated for 100bb.** A 20bb shove reads here
+    /// as a 4-bet — `.veryTight`, roughly the top 2% — when a 20bb stack shoving is one of
+    /// the widest ranges in poker. Right for a deep game, wrong for a short one, and the
+    /// error is in the direction that matters: the app tells a short stack their opponent
+    /// has aces.
+    ///
+    /// It is left alone deliberately. The obvious repairs do not survive contact:
+    /// re-reading the wager as a fraction of the effective stack makes the same 20bb shove
+    /// 100% of stack and therefore *tighter* still, and scaling the boundaries with depth
+    /// pushes them the same way. What actually widens a short stack's range is that the
+    /// bet is an **all-in** rather than that it is large — a shoving range is wide because
+    /// there is no street left to play, not because of the price — and modelling that
+    /// needs a shove-range table by stack depth. Unlike the fold-equity table, which had
+    /// α to anchor it to, there is no theorem here: it would be five more hand-authored
+    /// constants, which is exactly what the validation harness exists to stop being
+    /// invented. Recorded in the handoff with the numbers, waiting on data.
     public static func preflopRange(villainWagerInBigBlinds wager: Double) -> RangeType {
         if wager <= 1.5  { return .random }     // nobody has raised — a posted blind is not an action
         if wager <= 2.0  { return .veryWide }   // a min-raise

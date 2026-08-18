@@ -142,11 +142,16 @@ class EquityCalculator {
             // 2+ opponents: fall through to GPU MC
 
         case .preflop:
-            // Check preflop lookup table first (instant if cached)
+            // A lookup and nothing more. The table used to compute its own misses and
+            // return the result, which made everything below this point unreachable
+            // preflop — so the comment that used to sit here, promising a
+            // higher-accuracy run on a miss, described code that never ran, and the
+            // Calculation Depth setting never applied to a preflop spot at all.
+            //
             // Pass the caller's range through untouched. Substituting `.standard` for
             // `.random` answered a different question than the one asked: with no bet
             // in front of them, the user is asking about a random hand, not a raiser.
-            if let cached = await PreflopEquityTable.shared.equity(
+            if let cached = PreflopEquityTable.shared.cachedEquity(
                 hand: hand,
                 opponents: opponents,
                 range: opponentRange
@@ -154,37 +159,60 @@ class EquityCalculator {
                 PerformanceMonitor.shared.reportCalcInfo("Preflop table → \(String(format: "%.1f", cached * 100))%")
                 return cached
             }
-            // Cache miss (or first run): the table ran a quick sim to warm the cache.
-            // Continue to GPU/CPU MC below for a higher-accuracy result this session.
+            // Miss: fall through, compute at the caller's depth, and cache that.
+        }
+
+        let isPreflop = hand.communityCards.isEmpty
+
+        // ── Range filtering decides the engine, not the other way round ────
+        //
+        // The GPU kernel has no range filter (backlog #31), so it may only be used when
+        // the answer does not depend on one. This used to also require `opponents == 1`,
+        // which was harmless only because the preflop table absorbed every multiway
+        // request before it got here — with the fall-through live, that condition would
+        // have sent range-conditioned multiway preflop spots to a kernel that silently
+        // ignores the range. Correct and slower beats fast and wrong.
+        let useRangeFiltering = isPreflop && opponentRange != .random
+
+        // A cached preflop equity is permanent until the schema version changes, so it is
+        // never computed at less than the floor the table itself used to apply. A deeper
+        // setting still wins; a shallower one cannot poison the cache. Note the threshold:
+        // anything at or above 0.0022 stops `MonteCarloEngine` after its first 50,000-hand
+        // batch, and the app's own default is 0.005.
+        let sampleCount = isPreflop ? max(iterations, 200_000) : iterations
+        let precision = isPreflop ? min(confidenceThreshold, 0.001) : confidenceThreshold
+
+        func remember(_ equity: Double) -> Double {
+            if isPreflop {
+                PreflopEquityTable.shared.store(hand: hand, opponents: opponents,
+                                                range: opponentRange, equity: equity)
+            }
+            return equity
         }
 
         // ── GPU Monte Carlo ───────────────────────────────────────────────
-        // Range filtering only for preflop heads-up (see reasoning in comments below)
-        let isPreflop = hand.communityCards.isEmpty
-        let useRangeFiltering = isPreflop && opponentRange != .random && opponents == 1
-
         if !useRangeFiltering {
-            let gpuIterations = min(iterations, 2_000_000)
+            let gpuIterations = min(sampleCount, 2_000_000)
             if let metal = getMetalCompute(),
                let result = await metal.simulateGPU(hand: hand, opponents: opponents,
                                                      deadCards: deadCards, iterations: gpuIterations),
                result > 0.001 {
                 PerformanceMonitor.shared.reportCalcInfo("GPU MC \(gpuIterations / 1000)K → \(String(format: "%.1f", result * 100))%")
-                return result
+                return remember(result)
             }
         }
 
         // ── CPU Monte Carlo fallback ──────────────────────────────────────
         let range: OpponentRange.RangeType = useRangeFiltering ? opponentRange : .random
         PerformanceMonitor.shared.reportCalcInfo("CPU MC (range: \(range))...")
-        return await monteCarloEngine.simulate(
+        return remember(await monteCarloEngine.simulate(
             hand: hand,
             opponents: opponents,
             deadCards: deadCards,
-            iterations: iterations,
+            iterations: sampleCount,
             opponentRange: range,
-            confidenceThreshold: confidenceThreshold,
+            confidenceThreshold: precision,
             maxTimeSeconds: 10.0
-        )
+        ))
     }
 }

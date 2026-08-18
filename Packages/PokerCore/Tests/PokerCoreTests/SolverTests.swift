@@ -222,6 +222,48 @@ struct FoldEquityTests {
                 Comment(rawValue: "folded a call worth \(justAhead.evCall)"))
     }
 
+    /// Villain cannot see hero's cards, so hero's cards cannot change how often villain
+    /// folds. The model used to disagree: the position premium was applied only when hero
+    /// held a hand graded `.bluff` or `.weak`, which made villain's folding a function of
+    /// information villain does not have.
+    ///
+    /// Reading the fold frequency back out of the solver's own arithmetic is the only way
+    /// to see it through the public API, and it needs the bet size held still — grade
+    /// normally drives sizing too. Hero is left with less behind than a minimum raise, so
+    /// every grade shoves the same 20 chips, and the only difference between the two calls
+    /// below is hero's equity:
+    ///
+    ///     evRaise = f·pot + (1 − f)·(equity·potIfCalled − cost)
+    ///     ⟹  f = (evRaise − w) / (pot − w),   w = equity·potIfCalled − cost
+    @Test("Hero's hand does not change how often villain folds")
+    func villainsFoldingIgnoresHerosCards() {
+        let solver = ExploitativeSolver()
+        let settings = makeSettings()
+
+        func impliedFoldFrequency(equity: Double) -> Double {
+            let state = spot(board: "Ks 7h 2d", pot: 100, toCall: 40,
+                             stack: 60, villainStack: 200, position: .btn)
+            let result = solver.solve(gameState: state, myEquity: equity, settings: settings)
+            // Hero cannot make a legal raise, so the only aggression on offer is the shove.
+            #expect(result.raiseAmount == 20,
+                    Comment(rawValue: "expected the 20-chip shove, got \(result.raiseAmount)"))
+            let cost = 60.0                       // min(toCall + shove, effective stack)
+            let potIfCalled = 100.0 + cost + 20.0 // pot + hero's outlay + villain's call
+            let whenCalled = equity * potIfCalled - cost
+            return (result.evRaise - whenCalled) / (100.0 - whenCalled)
+        }
+
+        // 0.20 grades `.bluff`, 0.90 grades `.monster`. Villain can tell these apart only
+        // if the model is showing them hero's hand.
+        let asBluff = impliedFoldFrequency(equity: 0.20)
+        let asMonster = impliedFoldFrequency(equity: 0.90)
+
+        #expect(abs(asBluff - asMonster) < 1e-9,
+                Comment(rawValue: "villain folds \(asBluff) against hero's air and "
+                        + "\(asMonster) against hero's monster, in the same spot, "
+                        + "for the same bet"))
+    }
+
     /// Everyone has to fold, so fold equity compounds downward with each extra player.
     @Test("Fold equity falls as more players must fold")
     func foldEquityFallsWithMoreOpponents() {
@@ -390,3 +432,4 @@ struct DecisionConsistencyTests {
         }
     }
 }
+
