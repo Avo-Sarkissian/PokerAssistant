@@ -134,12 +134,9 @@ struct PublishedEquityLadderTests {
 @Suite("Published head-to-head matchups")
 struct PublishedMatchupTests {
 
-    /// Exhaustive enumeration is ~0.6s per suit configuration in release and sixteen
-    /// times that in debug, and a hand class runs up to twelve of them, so this shares
-    /// the census's gate rather than the fast loop. `./scripts/test anchors` sets it.
-    static var enabled: Bool {
-        ProcessInfo.processInfo.environment["POKER_EXTERNAL_ANCHORS"] == "1"
-    }
+    // Exhaustive enumeration is ~0.6s per suit configuration in release and sixteen times
+    // that in debug, and a hand class runs up to twelve of them, so this shares the
+    // census's gate rather than the fast loop. `ExternalAnchors` owns it.
 
     /// Published equity for the first hand class against the second, all in preflop.
     /// Standard hand-versus-hand figures, quoted to three decimals.
@@ -159,8 +156,7 @@ struct PublishedMatchupTests {
     ]
 
     @Test("Classic matchups enumerate to their published equities",
-          .enabled(if: PublishedMatchupTests.enabled,
-                   "set POKER_EXTERNAL_ANCHORS=1 (see ./scripts/test anchors)"),
+          .enabled(if: ExternalAnchors.enabled, Comment(rawValue: ExternalAnchors.skipReason)),
           .timeLimit(.minutes(30)),
           arguments: PublishedMatchupTests.matchups)
     func classicMatchupsMatchPublishedEquity(hero: String, heroCards: String,
@@ -178,8 +174,7 @@ struct PublishedMatchupTests {
     /// figures are, they must differ by about three points in the direction that says
     /// the flush matters.
     @Test("Suited overcards beat their offsuit twin by the price of a flush",
-          .enabled(if: PublishedMatchupTests.enabled,
-                   "set POKER_EXTERNAL_ANCHORS=1 (see ./scripts/test anchors)"),
+          .enabled(if: ExternalAnchors.enabled, Comment(rawValue: ExternalAnchors.skipReason)),
           .timeLimit(.minutes(30)))
     func suitednessIsWorthAboutThreePoints() {
         let queens = cards("Qh Qd")

@@ -144,3 +144,28 @@ public struct SeededGenerator: RandomNumberGenerator {
         return z ^ (z >> 31)
     }
 }
+
+// MARK: - The external-anchor gate
+
+/// Whether the expensive checks against published reference data should run.
+///
+/// The exhaustive C(52,7) census and the class-versus-class matchups cost ~37s in release
+/// and sixteen times that in debug, so they are gated out of the fast loop and run by
+/// `./scripts/test anchors`, which CI also runs.
+///
+/// It lives here, rather than being read from the environment in each suite, because a
+/// gate is exactly the kind of string that must not be written twice: a typo in one copy
+/// retires that suite silently, and a skipped test is a green run. Swift Testing prints
+/// skips with `➜` and exits zero.
+public enum ExternalAnchors {
+    public static let variable = "POKER_EXTERNAL_ANCHORS"
+
+    public static var enabled: Bool {
+        ProcessInfo.processInfo.environment[variable] == "1"
+    }
+
+    /// Plain `String` rather than a `Comment`: this target is a library the app's test
+    /// bundle links, and it has no business importing a testing framework to hold a
+    /// sentence. Call sites wrap it with `Comment(rawValue:)`.
+    public static let skipReason = "set \(variable)=1 (see ./scripts/test anchors)"
+}

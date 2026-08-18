@@ -155,6 +155,16 @@ struct FoldEquityTests {
 
     /// A player who is already all in cannot fold. Crediting fold equity against them
     /// manufactures the EV that drives the recommendation.
+    ///
+    /// The obvious assertion — that a raise is worth no more than a call — is **vacuous
+    /// here**, and was for as long as this test existed. When villain cannot continue,
+    /// `solve` sets `canRaise` to false and assigns `evRaise = evCall`, so the inequality
+    /// holds by construction whatever fold equity does. Deleting `villainCanContinue`
+    /// from `canRaise` left it passing.
+    ///
+    /// What is asserted instead is what the rule actually promises: there is no raise on
+    /// offer at all, it is priced at exactly what calling is worth rather than at
+    /// something close to it, and it is not what the app recommends.
     @Test("No fold equity against a villain who is already all in")
     func noFoldEquityVersusAnAllInVillain() {
         let solver = ExploitativeSolver()
@@ -165,9 +175,51 @@ struct FoldEquityTests {
             gameState: spot(pot: 60, toCall: 40, stack: 200, villainStack: 40, playersInHand: 2),
             myEquity: 0.45, settings: settings)
 
-        // With no fold equity a raise can be worth no more than calling.
-        #expect(allIn.evRaise <= allIn.evCall + 1e-9,
-                "raise \(allIn.evRaise) beat call \(allIn.evCall) against an all-in villain")
+        #expect(allIn.raiseAmount == 0,
+                Comment(rawValue: "offered a raise of \(allIn.raiseAmount) into a player "
+                        + "with nothing behind"))
+        #expect(allIn.evRaise == allIn.evCall,
+                Comment(rawValue: "raising into a player who cannot call must be worth "
+                        + "exactly what calling is worth — raise \(allIn.evRaise), "
+                        + "call \(allIn.evCall)"))
+        if case .raise = allIn.action {
+            Issue.record("recommended a raise against a villain who is already all in")
+        }
+    }
+
+    /// Hero's equity is exactly the pot odds, so calling and folding are worth precisely
+    /// the same and the tie rule is the only thing left to decide it.
+    ///
+    /// The numbers are chosen to be exact in binary rather than nearly exact: hero can
+    /// cover, so the contested pot is 150 + 50 = 200, and 0.25 × 200 − 50 is 0.0 with no
+    /// rounding anywhere. Without that the test would be measuring the last bit of a
+    /// division instead of the rule.
+    ///
+    /// `makeDecision` documents "ties resolve toward the least aggressive action, which
+    /// keeps variance down when two lines are worth the same", and nothing checked it:
+    /// relaxing `> best.ev + 1e-9` to `>= best.ev` passed every test in both targets.
+    @Test("A tie resolves toward the least aggressive action")
+    func tiesResolveTowardTheLeastAggressiveAction() {
+        let solver = ExploitativeSolver()
+        let settings = makeSettings()
+        let breakEven = solver.solve(
+            gameState: spot(pot: 150, toCall: 50, stack: 200, villainStack: 200, playersInHand: 2),
+            myEquity: 0.25, settings: settings)
+
+        #expect(breakEven.evCall == breakEven.evFold,
+                Comment(rawValue: "the spot is not the tie it was built to be: call "
+                        + "\(breakEven.evCall) against fold \(breakEven.evFold)"))
+        #expect(breakEven.action == .fold,
+                Comment(rawValue: "a break-even call was taken rather than declined: "
+                        + "\(breakEven.action)"))
+
+        // …and the rule is a tie-breaker, not a thumb on the scale: a hair more equity
+        // and the call is on.
+        let justAhead = solver.solve(
+            gameState: spot(pot: 150, toCall: 50, stack: 200, villainStack: 200, playersInHand: 2),
+            myEquity: 0.26, settings: settings)
+        #expect(justAhead.action != .fold,
+                Comment(rawValue: "folded a call worth \(justAhead.evCall)"))
     }
 
     /// Everyone has to fold, so fold equity compounds downward with each extra player.
